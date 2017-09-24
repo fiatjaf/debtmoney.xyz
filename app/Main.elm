@@ -1,15 +1,20 @@
-import Html exposing (Html, button, div, textarea, text)
+import Html exposing (Html, h1, div, textarea, button, p, a, text)
+import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
-import Http exposing (header)
-import GraphQL.Request.Builder exposing (..)
-import GraphQL.Client.Http as GraphQLClient
 import Task exposing (Task)
-import Result
-import Base64
+import GraphQL.Client.Http
 
+import Ports
+import GraphQL exposing (..)
+import Types exposing (..)
+
+
+type alias Flags =
+  { authSignature : String
+  }
 
 main =
-  Html.program
+  Html.programWithFlags
     { init = init
     , view = view
     , update = update
@@ -18,19 +23,16 @@ main =
 
 
 -- MODEL
-
 type alias Model =
   { user : User
-  , authMessage : String
+  , authSignature : String
   }
 
-type alias User =
-  { name : String
-  }
 
-init : (Model, Cmd Msg)
-init =
-  (Model (User "") "", Cmd.none)
+init : Flags -> (Model, Cmd Msg)
+init flags =
+  ( Model (User "") flags.authSignature
+  , graphql flags.authSignature myselfRequest |> Task.attempt GotAuth)
 
 
 -- UPDATE
@@ -38,51 +40,23 @@ init =
 type Msg
   = TypeAuthMessage String
   | SubmitAuthMessage
-  | GotAuth (Result GraphQLClient.Error User)
+  | GotAuth (Result GraphQL.Client.Http.Error User)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     TypeAuthMessage x ->
-      ({model | authMessage = x}, Cmd.none)
+      ({model | authSignature = x}, Cmd.none)
     SubmitAuthMessage ->
-      (model, graphql model myselfRequest |> Task.attempt GotAuth)
+      (model, graphql model.authSignature myselfRequest |> Task.attempt GotAuth)
     GotAuth result ->
       case result of
         Ok user ->
-          ({model | user = user}, Cmd.none)
+          {model | user = user} !
+            [ Ports.saveSignature model.authSignature
+            ]
         Err err ->
           (model, Cmd.none)
-
-
--- HELPERS
-
-graphql : Model -> Request Query a -> Task GraphQLClient.Error a
-graphql model request =
-  let
-    reqOpts =
-      { method = "POST"
-      , headers =
-        [ (header "Authorization" (Base64.encode model.authMessage))
-        ]
-      , url = "/_graphql"
-      , timeout = Nothing
-      , withCredentials = False
-      }
-  in
-    GraphQLClient.customSendQuery reqOpts request
-
-myselfRequest : Request Query User
-myselfRequest =
-  extract
-    (field "me"
-      []
-      (object User
-        |> with (field "name" [] string)
-      )
-    )
-    |> queryDocument
-    |> request {}
 
 
 -- SUBSCRIPTIONS
@@ -96,6 +70,23 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
   div []
-    [ textarea [onInput TypeAuthMessage] []
-    , button [ onClick SubmitAuthMessage] [ text "login" ]
+    [ if model.user.name /= "" then div [] [] else div [ id "login" ]
+      [ h1 []
+        [ text "Log in with "
+        , a [ target "_blank", href "https://keybase.io/sign" ] [ text "Keybase" ]
+        ]
+      , p [ title "If you're doing it on the CLI your must do a \"clearsign\" (-c)."
+        ] [ text "Sign your Keybase username and paste here." ]
+      , textarea
+        [ onInput TypeAuthMessage
+        , placeholder "-----BEGIN PGP SIGNED MESSAGE-----"
+        ] []
+      , button [ onClick SubmitAuthMessage] [ text "login" ]
+      ]
+    , div [ id "me" ] (
+      if model.user.name == "" then
+        []
+      else
+        [ text ("hello " ++ model.user.name) ]
+    )
     ]

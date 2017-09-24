@@ -5,10 +5,15 @@
 <link rel=stylesheet async href=style.css>
 <title>debtmoney</title>
 
-<div id=root></div>
+<body></body>
 
 <script src=elm.js></script>
 <script>
-var node = document.getElementById('root')
-var app = Elm.Main.embed(node)
+var app = Elm.Main.fullscreen({
+  authSignature: localStorage.getItem('authSignature') || ''
+})
+
+app.ports.saveSignature.subscribe(function (signature) {
+  localStorage.setItem('authSignature', signature)
+})
 </script>
