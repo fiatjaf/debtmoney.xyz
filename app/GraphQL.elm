@@ -1,4 +1,4 @@
-module GraphQL exposing (graphql, myselfRequest)
+module GraphQL exposing (r, myself)
 
 import Task exposing (Task)
 import Http exposing (header)
@@ -6,7 +6,7 @@ import Result
 import GraphQL.Request.Builder exposing
   ( Request, Query, queryDocument, request
   , with, extract, field
-  , object, string
+  , object, string, list, int
   )
 import GraphQL.Client.Http as GraphQLClient
 import Base64
@@ -14,8 +14,27 @@ import Base64
 import Types exposing (..)
 
 
-graphql : String -> Request Query a -> Task GraphQLClient.Error a
-graphql authSignature request =
+myself : Request Query User
+myself =
+  extract
+    (field "me"
+      []
+      (object User
+        |> with (field "name" [] string)
+        |> with (field "balances" [] <| list
+          (object Balance
+            |> with (field "asset" [] string)
+            |> with (field "amount" [] int)
+          )
+        )
+      )
+    )
+    |> queryDocument
+    |> request {}
+
+
+r : String -> Request Query a -> Task GraphQLClient.Error a
+r authSignature request =
   let
     reqOpts =
       { method = "POST"
@@ -28,15 +47,3 @@ graphql authSignature request =
       }
   in
     GraphQLClient.customSendQuery reqOpts request
-
-myselfRequest : Request Query User
-myselfRequest =
-  extract
-    (field "me"
-      []
-      (object User
-        |> with (field "name" [] string)
-      )
-    )
-    |> queryDocument
-    |> request {}

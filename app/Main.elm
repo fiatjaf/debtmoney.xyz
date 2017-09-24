@@ -1,11 +1,15 @@
-import Html exposing (Html, h1, div, textarea, button, p, a, text)
+import Html exposing
+  ( Html, text
+  , h1, h2, div, textarea, button, p, a
+  , table, tbody, thead, tr, th, td
+  )
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
 import Task exposing (Task)
 import GraphQL.Client.Http
 
 import Ports
-import GraphQL exposing (..)
+import GraphQL as GQL
 import Types exposing (..)
 
 
@@ -31,8 +35,8 @@ type alias Model =
 
 init : Flags -> (Model, Cmd Msg)
 init flags =
-  ( Model (User "") flags.authSignature
-  , graphql flags.authSignature myselfRequest |> Task.attempt GotAuth)
+  ( Model (User "" []) flags.authSignature
+  , GQL.r flags.authSignature GQL.myself |> Task.attempt GotAuth)
 
 
 -- UPDATE
@@ -48,7 +52,7 @@ update msg model =
     TypeAuthMessage x ->
       ({model | authSignature = x}, Cmd.none)
     SubmitAuthMessage ->
-      (model, graphql model.authSignature myselfRequest |> Task.attempt GotAuth)
+      (model, GQL.r model.authSignature GQL.myself |> Task.attempt GotAuth)
     GotAuth result ->
       case result of
         Ok user ->
@@ -84,9 +88,27 @@ view model =
       , button [ onClick SubmitAuthMessage] [ text "login" ]
       ]
     , div [ id "me" ] (
-      if model.user.name == "" then
-        []
+      if model.user.name == "" then []
       else
-        [ text ("hello " ++ model.user.name) ]
+        [ h1 [] [ text ("hello " ++ model.user.name) ]
+        , h2 [] [ text "your balances:" ]
+        , table []
+          [ thead []
+            [ tr []
+              [ th [] [ text "asset" ]
+              , th [] [ text "amount" ]
+              ]
+            ]
+          , tbody []
+            <| List.map assetRow model.user.balances
+          ]
+        ]
     )
+    ]
+
+assetRow : Balance -> Html Msg
+assetRow balance =
+  tr []
+    [ td [] [ text balance.asset ]
+    , td [] [ text <| toString balance.amount ]
     ]
