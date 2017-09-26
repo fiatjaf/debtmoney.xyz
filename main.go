@@ -7,21 +7,31 @@ import (
 	"os"
 	"time"
 
+	_ "github.com/lib/pq"
+
 	"github.com/gorilla/mux"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/handler"
+	"github.com/jmoiron/sqlx"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog"
+	"github.com/stellar/go/clients/horizon"
 	"gopkg.in/tylerb/graceful.v1"
 )
 
 type Settings struct {
+	SourcePublic string `envconfig:"SOURCE_PUBLIC"`
+	SourceSecret string `envconfig:"SOURCE_SECRET"`
+	PostgresURL  string `envconfig:"DATABASE_URL"`
 }
 
 var err error
 var s Settings
+var pg *sqlx.DB
 var router *mux.Router
 var schema graphql.Schema
+var testnet = horizon.DefaultTestNetClient
+var mainnet = horizon.DefaultPublicNetClient
 var log = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 func main() {
@@ -31,6 +41,12 @@ func main() {
 	}
 
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+
+	// postgres client
+	pg, err = sqlx.Open("postgres", s.PostgresURL)
+	if err != nil {
+		log.Fatal().Err(err).Str("uri", s.PostgresURL).Msg("failed to connect to pg")
+	}
 
 	// graphql schema
 	schema, err = graphql.NewSchema(schemaConfig)
@@ -56,9 +72,9 @@ func main() {
 			ctx := context.TODO()
 
 			m, _ := base64.StdEncoding.DecodeString(r.Header.Get("Authorization"))
-			user, valid, err := keybaseAuth(string(m))
+			name, valid, err := keybaseAuth(string(m))
 			if err == nil && valid {
-				ctx = context.WithValue(ctx, "user", user)
+				ctx = context.WithValue(ctx, "user", name+"@keybase")
 			}
 
 			w.Header().Set("Content-Type", "application/json")

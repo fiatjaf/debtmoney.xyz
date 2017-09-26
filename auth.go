@@ -14,7 +14,7 @@ func keybaseAuth(message string) (user string, valid bool, err error) {
 		return
 	}
 
-	user = "keybase.io/" + content
+	user = content
 	w, err := http.Get("https://keybase.io/" + content + "/key.asc")
 	if err != nil {
 		return
