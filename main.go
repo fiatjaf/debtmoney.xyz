@@ -75,6 +75,8 @@ func main() {
 			name, valid, err := keybaseAuth(string(m))
 			if err == nil && valid {
 				ctx = context.WithValue(ctx, "user", name+"@keybase")
+			} else {
+				log.Warn().Err(err).Str("name", name).Msg("failed to verify keybase signature")
 			}
 
 			w.Header().Set("Content-Type", "application/json")

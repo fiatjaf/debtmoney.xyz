@@ -27,6 +27,7 @@ func ensureAccount(name, source string) (acc Account, err error) {
 	}
 	defer txn.Rollback()
 
+	log.Info().Str("name", name).Str("source", source).Msg("checking account existence")
 	err = txn.Get(&acc, `
 SELECT * FROM accounts
 WHERE name = $1 AND source = $2
@@ -51,6 +52,7 @@ WHERE name = $1 AND source = $2
 	}
 
 	// proceed to create a new row
+	log.Info().Str("name", name).Str("source", source).Msg("creating account")
 	pair, err := keypair.Random()
 	if err != nil {
 		return
