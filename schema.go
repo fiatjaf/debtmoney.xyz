@@ -12,13 +12,9 @@ var queries = graphql.Fields{
 	"me": &graphql.Field{
 		Type: userType,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			user, ok := p.Context.Value("user").(string)
+			userId, ok := p.Context.Value("userId").(string)
 			if ok {
-				name, source, err := decoupleNameSource(user)
-				if err != nil {
-					return nil, err
-				}
-				return ensureAccount(name, source)
+				return ensureUser(userId)
 			}
 			return nil, nil
 		},
@@ -29,23 +25,22 @@ var userType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "UserType",
 		Fields: graphql.Fields{
-			"name":   &graphql.Field{Type: graphql.String},
-			"source": &graphql.Field{Type: graphql.String},
-			"public": &graphql.Field{Type: graphql.String},
+			"id":      &graphql.Field{Type: graphql.String},
+			"address": &graphql.Field{Type: graphql.String},
 			"balances": &graphql.Field{
 				Type: graphql.NewList(balanceType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					acc := p.Source.(Account)
-					balances := make([]Balance, len(acc.Balances)-1)
+					user := p.Source.(User)
+					balances := make([]Balance, len(user.Balances)-1)
 
-					for i, b := range acc.Balances {
+					for i, b := range user.Balances {
 						var assetName string
 						if b.Asset.Type == "native" {
 							continue
 						} else {
 							issuerName := b.Asset.Issuer
 							err := pg.Get(&issuerName,
-								"SELECT name || '@' || source FROM accounts WHERE public = $1",
+								"SELECT name || '@' || source FROM userounts WHERE public = $1",
 								b.Asset.Issuer)
 							if err != nil {
 								log.Error().Err(err).Msg("on asset issuer name query.")
@@ -85,33 +80,25 @@ var mutations = graphql.Fields{
 			"amount":   &graphql.ArgumentConfig{Type: graphql.String},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			user, ok := p.Context.Value("user").(string)
+			userId, ok := p.Context.Value("userId").(string)
 			if !ok {
 				return nil, errors.New("user not logged")
 			}
-			name, source, err := decoupleNameSource(user)
-			if err != nil {
-				return nil, err
-			}
-			me, err := ensureAccount(name, source)
+			me, err := ensureUser(userId)
 			if err != nil {
 				return nil, err
 			}
 			l := log.With().Timestamp().
-				Str("from", me.Name+"@"+me.Source).
+				Str("from", me.Id).
 				Logger()
 
 			creditor := p.Args["creditor"].(string)
-			name, source, err = decoupleNameSource(creditor)
-			if err != nil {
-				return nil, err
-			}
-			cred, err := ensureAccount(name, source)
+			cred, err := ensureUser(creditor)
 			if err != nil {
 				return nil, err
 			}
 			l = l.With().Timestamp().
-				Str("to", cred.Name+"@"+cred.Source).
+				Str("to", cred.Id).
 				Logger()
 
 			asset := p.Args["asset"].(string)

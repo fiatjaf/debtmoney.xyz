@@ -17,15 +17,14 @@ import Base64
 import Types exposing (..)
 
 
-myself : Request Query Account
+myself : Request Query User
 myself =
   extract
     (field "me"
       []
-      (object Account
-        |> with (field "name" [] string)
-        |> with (field "source" [] string)
-        |> with (field "public" [] string)
+      (object User
+        |> with (field "id" [] string)
+        |> with (field "address" [] string)
         |> with (field "balances" [] <| list
           (object Balance
             |> with (field "asset" [] string)
@@ -61,19 +60,13 @@ declareDebt vars =
       |> request vars
 
 
-q : String -> Request Query a -> Task GraphQLClient.Error a
-q authSignature request =
-  let
-    o = { reqOpts | headers = [ (header "Authorization" (Base64.encode authSignature)) ] }
-  in
-    GraphQLClient.customSendQuery o request
+q : Request Query a -> Task GraphQLClient.Error a
+q request =
+  GraphQLClient.customSendQuery reqOpts request
 
-m : String -> Request Mutation a -> Task GraphQLClient.Error a
-m authSignature request =
-  let
-    o = { reqOpts | headers = [ (header "Authorization" (Base64.encode authSignature)) ] }
-  in
-    GraphQLClient.customSendMutation o request
+m : Request Mutation a -> Task GraphQLClient.Error a
+m request =
+  GraphQLClient.customSendMutation reqOpts request
 
 reqOpts = 
   { method = "POST"

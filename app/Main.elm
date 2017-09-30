@@ -5,18 +5,16 @@ import Html exposing
   , input, select, option
   )
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Task exposing (Task)
 import GraphQL.Client.Http
 
-import Ports
 import GraphQL as GQL
 import Types exposing (..)
 
 
-type alias Flags =
-  { authSignature : String
-  }
+type alias Flags = {}
+
 
 main =
   Html.programWithFlags
@@ -29,8 +27,7 @@ main =
 
 -- MODEL
 type alias Model =
-  { account : Account
-  , authSignature : String
+  { user : User
   , declaringDebt : DeclareDebt
   }
 
@@ -38,18 +35,15 @@ type alias Model =
 init : Flags -> (Model, Cmd Msg)
 init flags =
   ( Model
-    (Account "" "" "" [])
-    flags.authSignature
+    (User "" "" [])
     (DeclareDebt "" "" "0.00")
-  , GQL.q flags.authSignature GQL.myself |> Task.attempt GotAuth)
+  , GQL.q GQL.myself |> Task.attempt GotAuth)
 
 
 -- UPDATE
 
 type Msg
-  = TypeAuthMessage String
-  | SubmitAuthMessage
-  | GotAuth (Result GraphQL.Client.Http.Error Account)
+  = GotAuth (Result GraphQL.Client.Http.Error User)
   | TypeDebtCreditor String
   | TypeDebtAsset String
   | TypeDebtAmount String
@@ -59,17 +53,10 @@ type Msg
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    TypeAuthMessage x ->
-      {model | authSignature = x} ! []
-      
-    SubmitAuthMessage ->
-      model ! [ GQL.q model.authSignature GQL.myself |> Task.attempt GotAuth ]
     GotAuth result ->
       case result of
-        Ok acc ->
-          {model | account = acc} !
-            [ Ports.saveSignature model.authSignature
-            ]
+        Ok user ->
+          {model | user = user} ! []
         Err err ->
           (model, Cmd.none)
     TypeDebtCreditor x ->
@@ -80,7 +67,7 @@ update msg model =
       {model | declaringDebt = model.declaringDebt |> setAmount x } ! []
     SubmitDebtDeclaration ->
       model !
-        [ ( GQL.m model.authSignature (GQL.declareDebt model.declaringDebt) )
+        [ ( GQL.m (GQL.declareDebt model.declaringDebt) )
           |> Task.attempt GotDebtDeclarationResponse
         ]
     GotDebtDeclarationResponse result ->
@@ -98,24 +85,11 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
   div []
-    [ if model.account.name /= "" then div [] [] else div [ id "login" ]
-      [ h1 []
-        [ text "Log in with "
-        , a [ target "_blank", href "https://keybase.io/sign" ] [ text "Keybase" ]
-        ]
-      , p [ title "If you're doing it on the CLI your must do a \"clearsign\" (-c)."
-        ] [ text "Sign your Keybase username and paste here." ]
-      , textarea
-        [ onInput TypeAuthMessage
-        , placeholder "-----BEGIN PGP SIGNED MESSAGE-----"
-        ] []
-      , button [ onClick SubmitAuthMessage] [ text "login" ]
-      ]
-    , if model.account.name == "" then div [] [] else div [ id "me" ]
-      [ h1 [] [ text ("hello " ++ model.account.name) ]
+    [ if model.user.id == "" then div [] [] else div [ id "me" ]
+      [ h1 [] [ text ("hello " ++ model.user.id) ]
       , div []
         [ h2 [] [ text "your address:" ]
-        , p [] [ text model.account.public ]
+        , p [] [ text model.user.address]
         ]
       , div []
         [ h2 [] [ text "your balances:" ]
@@ -127,7 +101,7 @@ view model =
               ]
             ]
           , tbody []
-            <| List.map assetRow model.account.balances
+            <| List.map assetRow model.user.balances
           ]
         ]
       , div []

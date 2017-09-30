@@ -1,3 +1,1 @@
-port module Ports exposing (saveSignature)
-
-port saveSignature : String -> Cmd msg
+port module Ports

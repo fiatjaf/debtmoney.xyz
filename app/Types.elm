@@ -1,9 +1,8 @@
 module Types exposing (..)
 
-type alias Account =
-  { name : String
-  , source : String
-  , public : String
+type alias User =
+  { id : String
+  , address : String
   , balances : List Balance
   }
 

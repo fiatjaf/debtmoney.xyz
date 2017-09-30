@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"time"
@@ -10,6 +10,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/handler"
 	"github.com/jmoiron/sqlx"
@@ -20,9 +21,11 @@ import (
 )
 
 type Settings struct {
-	SourcePublic string `envconfig:"SOURCE_PUBLIC"`
-	SourceSecret string `envconfig:"SOURCE_SECRET"`
-	PostgresURL  string `envconfig:"DATABASE_URL"`
+	SourceAddress string `envconfig:"SOURCE_ADDRESS"`
+	SourceSeed    string `envconfig:"SOURCE_SEED"`
+	PostgresURL   string `envconfig:"DATABASE_URL"`
+	SecretKey     string `envconfig:"SECRET_KEY"`
+	ServiceURL    string `envconfig:"SERVICE_URL"`
 }
 
 var err error
@@ -32,6 +35,7 @@ var router *mux.Router
 var schema graphql.Schema
 var testnet = horizon.DefaultTestNetClient
 var mainnet = horizon.DefaultPublicNetClient
+var sessionStore *sessions.CookieStore
 var log = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 func main() {
@@ -41,6 +45,9 @@ func main() {
 	}
 
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+
+	// cookie store
+	sessionStore = sessions.NewCookieStore([]byte(s.SecretKey))
 
 	// postgres client
 	pg, err = sqlx.Open("postgres", s.PostgresURL)
@@ -67,16 +74,55 @@ func main() {
 			http.ServeFile(w, r, "."+r.URL.Path)
 		},
 	)
+	router.Path("/auth/callback").Methods("GET").HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			code := r.URL.Query().Get("code")
+
+			resp, err := http.Post(
+				"https://unified-users-database.herokuapp.com/verify/"+code,
+				"text/plain",
+				nil,
+			)
+			if err != nil {
+				http.Error(w, err.Error(), 503)
+				return
+			}
+
+			content, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
+			userId := string(content)
+			if userId == "" {
+				http.Error(w, "invalid authorization", 401)
+				return
+			} else {
+				session, err := sessionStore.Get(r, "auth-session")
+				if err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
+
+				session.Values["userId"] = userId
+				session.Save(r, w)
+				http.Redirect(w, r, "/app/", 302)
+			}
+		},
+	)
 	router.Path("/_graphql").Methods("POST").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.TODO()
 
-			m, _ := base64.StdEncoding.DecodeString(r.Header.Get("Authorization"))
-			name, valid, err := keybaseAuth(string(m))
-			if err == nil && valid {
-				ctx = context.WithValue(ctx, "user", name+"@keybase")
-			} else {
-				log.Warn().Err(err).Str("name", name).Msg("failed to verify keybase signature")
+			session, err := sessionStore.Get(r, "auth-session")
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
+			if userId, ok := session.Values["userId"]; ok {
+				ctx = context.WithValue(ctx, "userId", userId)
 			}
 
 			w.Header().Set("Content-Type", "application/json")

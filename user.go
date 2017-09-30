@@ -11,27 +11,26 @@ import (
 	"github.com/stellar/go/keypair"
 )
 
-type Account struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
-	Public string `json:"public"`
-	Secret string `json:"-"`
+type User struct {
+	Id      string `json:"id"      db:"id"`
+	Address string `json:"address" db:"address"`
+	Private string `json:"-"       db:"seed"`
 
-	horizon.Account
+	horizon.Account `json:"-"`
 }
 
-func ensureAccount(name, source string) (acc Account, err error) {
+func ensureUser(id string) (user User, err error) {
 	txn, err := pg.Beginx()
 	if err != nil {
 		return
 	}
 	defer txn.Rollback()
 
-	log.Info().Str("name", name).Str("source", source).Msg("checking account existence")
-	err = txn.Get(&acc, `
-SELECT * FROM accounts
-WHERE name = $1 AND source = $2
-    `, name, source)
+	log.Info().Str("id", id).Msg("checking account existence")
+	err = txn.Get(&user, `
+SELECT * FROM users
+WHERE user = $1
+    `, id)
 	if err != nil && err.Error() != "sql: no rows in result set" {
 		return
 	}
@@ -41,41 +40,40 @@ WHERE name = $1 AND source = $2
 	defer func() {
 		if err == nil {
 			var ha horizon.Account
-			ha, err = testnet.LoadAccount(acc.Public)
-			acc.Account = ha
+			ha, err = testnet.LoadAccount(user.Address)
+			user.Account = ha
 		}
 	}()
 
-	if acc.Name != "" {
+	if user.Id != "" {
 		// ok, we've found a row
 		return
 	}
 
 	// proceed to create a new row
-	log.Info().Str("name", name).Str("source", source).Msg("creating account")
+	log.Info().Str("id", id).Msg("creating account")
 	pair, err := keypair.Random()
 	if err != nil {
 		return
 	}
 
 	_, err = txn.Exec(`
-INSERT INTO accounts
-(name, source, public, secret)
-VALUES ($1, $2, $3, $4)
-    `, name, source, pair.Address(), pair.Seed())
+INSERT INTO users
+(id, address, seed)
+VALUES ($1, $2, $3)
+    `, id, pair.Address(), pair.Seed())
 	if err != nil {
 		return
 	}
 
 	txn.Commit()
 
-	acc = Account{
-		Name:   name,
-		Source: source,
-		Public: pair.Address(),
-		Secret: pair.Seed(),
+	user = User{
+		Id:      id,
+		Address: pair.Address(),
+		Private: pair.Seed(),
 	}
-	err = acc.fundInitial()
+	err = user.fundInitial()
 	if err != nil {
 		return
 	}
@@ -83,13 +81,13 @@ VALUES ($1, $2, $3, $4)
 	return
 }
 
-func (acc Account) fundInitial() error {
+func (user User) fundInitial() error {
 	tx := b.Transaction(
 		b.TestNetwork,
-		b.SourceAccount{s.SourcePublic},
+		b.SourceAccount{s.SourceAddress},
 		b.AutoSequence{testnet},
 		b.CreateAccount(
-			b.Destination{acc.Public},
+			b.Destination{user.Address},
 			b.NativeAmount{"20.1"},
 		),
 	)
@@ -97,7 +95,7 @@ func (acc Account) fundInitial() error {
 		return tx.Err
 	}
 
-	txe := tx.Sign(s.SourceSecret)
+	txe := tx.Sign(s.SourceSeed)
 	blob, err := txe.Base64()
 	if err != nil {
 		return err
@@ -110,13 +108,13 @@ func (acc Account) fundInitial() error {
 	return nil
 }
 
-func (acc Account) fundMore(amount int) error {
+func (user User) fundMore(amount int) error {
 	tx := b.Transaction(
 		b.TestNetwork,
-		b.SourceAccount{s.SourcePublic},
+		b.SourceAccount{s.SourceAddress},
 		b.AutoSequence{testnet},
 		b.Payment(
-			b.Destination{acc.Public},
+			b.Destination{user.Address},
 			b.NativeAmount{strconv.Itoa(amount)},
 		),
 	)
@@ -124,7 +122,7 @@ func (acc Account) fundMore(amount int) error {
 		return tx.Err
 	}
 
-	txe := tx.Sign(s.SourceSecret)
+	txe := tx.Sign(s.SourceSeed)
 	blob, err := txe.Base64()
 	if err != nil {
 		return err
@@ -137,7 +135,7 @@ func (acc Account) fundMore(amount int) error {
 	return nil
 }
 
-func (rec Account) trust(iss Account, asset string, newAmount string) error {
+func (rec User) trust(iss User, asset string, newAmount string) error {
 	newAmountd, err := decimal.NewFromString(newAmount)
 	if err != nil {
 		return err
@@ -148,7 +146,7 @@ func (rec Account) trust(iss Account, asset string, newAmount string) error {
 	need := newAmountd
 
 	for _, balance := range rec.Balances {
-		if balance.Asset.Issuer == iss.Public && balance.Asset.Code == asset {
+		if balance.Asset.Issuer == iss.Address && balance.Asset.Code == asset {
 			// asset already in the balance
 			fund = false
 
@@ -179,15 +177,15 @@ func (rec Account) trust(iss Account, asset string, newAmount string) error {
 	// change or create the trustline
 	tx := b.Transaction(
 		b.TestNetwork,
-		b.SourceAccount{rec.Public},
+		b.SourceAccount{rec.Address},
 		b.AutoSequence{testnet},
-		b.Trust(asset, iss.Public, b.Limit(need.StringFixed(2))),
+		b.Trust(asset, iss.Address, b.Limit(need.StringFixed(2))),
 	)
 	if tx.Err != nil {
 		return tx.Err
 	}
 
-	txe := tx.Sign(rec.Secret)
+	txe := tx.Sign(rec.Private)
 	blob, err := txe.Base64()
 	if err != nil {
 		return err
@@ -200,21 +198,21 @@ func (rec Account) trust(iss Account, asset string, newAmount string) error {
 	return nil
 }
 
-func (from Account) makeDebt(to Account, assetCode string, amount string) error {
+func (from User) makeDebt(to User, assetCode string, amount string) error {
 	tx := b.Transaction(
 		b.TestNetwork,
-		b.SourceAccount{from.Public},
+		b.SourceAccount{from.Address},
 		b.AutoSequence{testnet},
 		b.Payment(
-			b.Destination{to.Public},
-			b.CreditAmount{assetCode, from.Public, amount},
+			b.Destination{to.Address},
+			b.CreditAmount{assetCode, from.Address, amount},
 		),
 	)
 	if tx.Err != nil {
 		return tx.Err
 	}
 
-	txe := tx.Sign(from.Secret)
+	txe := tx.Sign(from.Private)
 	blob, err := txe.Base64()
 	if err != nil {
 		return err

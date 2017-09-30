@@ -9,11 +9,5 @@
 
 <script src=elm.js></script>
 <script>
-var app = Elm.Main.fullscreen({
-  authSignature: localStorage.getItem('authSignature') || ''
-})
-
-app.ports.saveSignature.subscribe(function (signature) {
-  localStorage.setItem('authSignature', signature)
-})
+var app = Elm.Main.fullscreen()
 </script>
