@@ -16,6 +16,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog"
+	"github.com/stellar/go/build"
 	"github.com/stellar/go/clients/horizon"
 	"gopkg.in/tylerb/graceful.v1"
 )
@@ -30,13 +31,17 @@ type Settings struct {
 
 var err error
 var s Settings
+var h *horizon.Client
+var n build.Network
 var pg *sqlx.DB
 var router *mux.Router
 var schema graphql.Schema
-var testnet = horizon.DefaultTestNetClient
-var mainnet = horizon.DefaultPublicNetClient
 var sessionStore *sessions.CookieStore
 var log = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+const (
+	UUD = "https://cantillon.alhur.es:6336"
+)
 
 func main() {
 	err = envconfig.Process("", &s)
@@ -48,6 +53,10 @@ func main() {
 
 	// cookie store
 	sessionStore = sessions.NewCookieStore([]byte(s.SecretKey))
+
+	// stellar clients
+	h = horizon.DefaultTestNetClient
+	n = build.TestNetwork
 
 	// postgres client
 	pg, err = sqlx.Open("postgres", s.PostgresURL)

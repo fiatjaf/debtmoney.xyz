@@ -3,9 +3,11 @@ package main
 import (
 	"strconv"
 
+	napping "gopkg.in/jmcvetta/napping.v3"
+
+	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
-
 	b "github.com/stellar/go/build"
 	"github.com/stellar/go/clients/horizon"
 	"github.com/stellar/go/keypair"
@@ -14,9 +16,20 @@ import (
 type User struct {
 	Id      string `json:"id"      db:"id"`
 	Address string `json:"address" db:"address"`
-	Private string `json:"-"       db:"seed"`
+	Seed    string `json:"-"       db:"seed"`
 
-	horizon.Account `json:"-"`
+	ha horizon.Account
+}
+
+func lookupUser(name string) (res struct {
+	Id   string `json:"id"`
+	Type string `json:"type"`
+}, err error) {
+	r, err := napping.Get(UUD+"/lookup/"+name, nil, &res, nil)
+	if r.Status() > 299 && err == nil {
+		err = errors.New("uud returned error: " + strconv.Itoa(r.Status()))
+	}
+	return
 }
 
 func ensureUser(id string) (user User, err error) {
@@ -29,7 +42,7 @@ func ensureUser(id string) (user User, err error) {
 	log.Info().Str("id", id).Msg("checking account existence")
 	err = txn.Get(&user, `
 SELECT * FROM users
-WHERE user = $1
+WHERE id = $1
     `, id)
 	if err != nil && err.Error() != "sql: no rows in result set" {
 		return
@@ -40,8 +53,8 @@ WHERE user = $1
 	defer func() {
 		if err == nil {
 			var ha horizon.Account
-			ha, err = testnet.LoadAccount(user.Address)
-			user.Account = ha
+			ha, err = h.LoadAccount(user.Address)
+			user.ha = ha
 		}
 	}()
 
@@ -71,7 +84,7 @@ VALUES ($1, $2, $3)
 	user = User{
 		Id:      id,
 		Address: pair.Address(),
-		Private: pair.Seed(),
+		Seed:    pair.Seed(),
 	}
 	err = user.fundInitial()
 	if err != nil {
@@ -83,9 +96,9 @@ VALUES ($1, $2, $3)
 
 func (user User) fundInitial() error {
 	tx := b.Transaction(
-		b.TestNetwork,
+		n,
 		b.SourceAccount{s.SourceAddress},
-		b.AutoSequence{testnet},
+		b.AutoSequence{h},
 		b.CreateAccount(
 			b.Destination{user.Address},
 			b.NativeAmount{"20.1"},
@@ -101,7 +114,7 @@ func (user User) fundInitial() error {
 		return err
 	}
 
-	_, err = testnet.SubmitTransaction(blob)
+	_, err = h.SubmitTransaction(blob)
 	if err != nil {
 		return err
 	}
@@ -110,9 +123,9 @@ func (user User) fundInitial() error {
 
 func (user User) fundMore(amount int) error {
 	tx := b.Transaction(
-		b.TestNetwork,
+		n,
 		b.SourceAccount{s.SourceAddress},
-		b.AutoSequence{testnet},
+		b.AutoSequence{h},
 		b.Payment(
 			b.Destination{user.Address},
 			b.NativeAmount{strconv.Itoa(amount)},
@@ -128,7 +141,7 @@ func (user User) fundMore(amount int) error {
 		return err
 	}
 
-	_, err = testnet.SubmitTransaction(blob)
+	_, err = h.SubmitTransaction(blob)
 	if err != nil {
 		return err
 	}
@@ -145,7 +158,7 @@ func (rec User) trust(iss User, asset string, newAmount string) error {
 	fund := true
 	need := newAmountd
 
-	for _, balance := range rec.Balances {
+	for _, balance := range rec.ha.Balances {
 		if balance.Asset.Issuer == iss.Address && balance.Asset.Code == asset {
 			// asset already in the balance
 			fund = false
@@ -176,50 +189,27 @@ func (rec User) trust(iss User, asset string, newAmount string) error {
 
 	// change or create the trustline
 	tx := b.Transaction(
-		b.TestNetwork,
+		n,
 		b.SourceAccount{rec.Address},
-		b.AutoSequence{testnet},
+		b.AutoSequence{h},
 		b.Trust(asset, iss.Address, b.Limit(need.StringFixed(2))),
 	)
 	if tx.Err != nil {
 		return tx.Err
 	}
 
-	txe := tx.Sign(rec.Private)
+	txe := tx.Sign(rec.Seed)
 	blob, err := txe.Base64()
 	if err != nil {
 		return err
 	}
 
-	_, err = testnet.SubmitTransaction(blob)
+	_, err = h.SubmitTransaction(blob)
 	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (from User) makeDebt(to User, assetCode string, amount string) error {
-	tx := b.Transaction(
-		b.TestNetwork,
-		b.SourceAccount{from.Address},
-		b.AutoSequence{testnet},
-		b.Payment(
-			b.Destination{to.Address},
-			b.CreditAmount{assetCode, from.Address, amount},
-		),
-	)
-	if tx.Err != nil {
-		return tx.Err
-	}
-
-	txe := tx.Sign(from.Private)
-	blob, err := txe.Base64()
-	if err != nil {
-		return err
-	}
-
-	_, err = testnet.SubmitTransaction(blob)
-	if err != nil {
+		if herr, ok := err.(*horizon.Error); ok {
+			c, _ := herr.ResultCodes()
+			pretty.Log(c)
+		}
 		return err
 	}
 	return nil

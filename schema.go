@@ -4,17 +4,20 @@ import (
 	"errors"
 
 	"github.com/graphql-go/graphql"
-	"github.com/kr/pretty"
-	"github.com/stellar/go/clients/horizon"
 )
 
 var queries = graphql.Fields{
-	"me": &graphql.Field{
+	"user": &graphql.Field{
 		Type: userType,
+		Args: graphql.FieldConfigArgument{
+			"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			userId, ok := p.Context.Value("userId").(string)
-			if ok {
-				return ensureUser(userId)
+			if p.Args["id"].(string) == "me" {
+				userId, ok := p.Context.Value("userId").(string)
+				if ok {
+					return ensureUser(userId)
+				}
 			}
 			return nil, nil
 		},
@@ -31,9 +34,9 @@ var userType = graphql.NewObject(
 				Type: graphql.NewList(balanceType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					user := p.Source.(User)
-					balances := make([]Balance, len(user.Balances)-1)
+					balances := make([]Balance, len(user.ha.Balances)-1)
 
-					for i, b := range user.Balances {
+					for i, b := range user.ha.Balances {
 						var assetName string
 						if b.Asset.Type == "native" {
 							continue
@@ -88,47 +91,45 @@ var mutations = graphql.Fields{
 			if err != nil {
 				return nil, err
 			}
-			l := log.With().Timestamp().
-				Str("from", me.Id).
-				Logger()
 
 			creditor := p.Args["creditor"].(string)
-			cred, err := ensureUser(creditor)
-			if err != nil {
-				return nil, err
-			}
-			l = l.With().Timestamp().
-				Str("to", cred.Id).
-				Logger()
-
 			asset := p.Args["asset"].(string)
 			amount := p.Args["amount"].(string)
-			l = l.With().Timestamp().
+
+			log.Info().
+				Str("from", me.Id).
+				Str("to", creditor).
 				Str("asset", asset).
 				Str("amount", amount).
-				Logger()
+				Msg("looking up creditor")
 
-			l.Info().Msg("adjusting trustline")
-			err = cred.trust(me, asset, amount)
+			look, err := lookupUser(creditor)
 			if err != nil {
-				if herr, ok := err.(*horizon.Error); ok {
-					c, _ := herr.ResultCodes()
-					pretty.Log(c)
-				}
 				return nil, err
 			}
 
-			l.Info().Msg("transfering asset")
-			err = me.makeDebt(cred, asset, amount)
-			if err != nil {
-				if herr, ok := err.(*horizon.Error); ok {
-					c, _ := herr.ResultCodes()
-					pretty.Log(c)
+			var cred User
+			if look.Id != "" {
+				cred, err = ensureUser(look.Id)
+				if err != nil {
+					return nil, err
 				}
+			}
+
+			debt, err := me.simpleDebt(me.Id, creditor, asset, amount)
+			if err != nil {
 				return nil, err
 			}
 
-			return nil, nil
+			log.Info().Int("id", debt.Id).Msg("debt created, should we confirm?")
+
+			if look.Id != "" {
+				debt.From = me
+				debt.To = cred
+				err = debt.Confirm(look.Id)
+			}
+
+			return nil, err
 		},
 	},
 }

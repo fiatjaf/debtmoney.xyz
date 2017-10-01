@@ -10,7 +10,8 @@ import Task exposing (Task)
 import GraphQL.Client.Http
 
 import GraphQL as GQL
-import Types exposing (..)
+import User
+import Record
 
 
 type alias Flags = {}
@@ -27,47 +28,49 @@ main =
 
 -- MODEL
 type alias Model =
-  { user : User
-  , declaringDebt : DeclareDebt
+  { user : User.User
+  , declaringDebt : Record.DeclareDebt
+  , error : String
   }
 
 
 init : Flags -> (Model, Cmd Msg)
 init flags =
   ( Model
-    (User "" "" [])
-    (DeclareDebt "" "" "0.00")
-  , GQL.q GQL.myself |> Task.attempt GotAuth)
+    User.defaultUser
+    (Record.DeclareDebt "" "" "0.00")
+    ""
+  , GQL.q User.myself |> Task.attempt GotMyself)
 
 
 -- UPDATE
 
 type Msg
-  = GotAuth (Result GraphQL.Client.Http.Error User)
+  = GotMyself (Result GraphQL.Client.Http.Error User.User)
   | TypeDebtCreditor String
   | TypeDebtAsset String
   | TypeDebtAmount String
   | SubmitDebtDeclaration
-  | GotDebtDeclarationResponse (Result GraphQL.Client.Http.Error ResultType)
+  | GotDebtDeclarationResponse (Result GraphQL.Client.Http.Error GQL.Result)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    GotAuth result ->
+    GotMyself result ->
       case result of
         Ok user ->
           {model | user = user} ! []
         Err err ->
-          (model, Cmd.none)
+          {model | error = GQL.errorFormat err} ! []
     TypeDebtCreditor x ->
-      {model | declaringDebt = model.declaringDebt |> setCreditor x } ! []
+      {model | declaringDebt = model.declaringDebt |> Record.setCreditor x } ! []
     TypeDebtAsset x ->
-      {model | declaringDebt = model.declaringDebt |> setAsset x } ! []
+      {model | declaringDebt = model.declaringDebt |> Record.setAsset x } ! []
     TypeDebtAmount x ->
-      {model | declaringDebt = model.declaringDebt |> setAmount x } ! []
+      {model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
     SubmitDebtDeclaration ->
       model !
-        [ ( GQL.m (GQL.declareDebt model.declaringDebt) )
+        [ ( GQL.m (Record.declareDebt model.declaringDebt) )
           |> Task.attempt GotDebtDeclarationResponse
         ]
     GotDebtDeclarationResponse result ->
@@ -85,7 +88,10 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
   div []
-    [ if model.user.id == "" then div [] [] else div [ id "me" ]
+    [ if model.error == "" then div [] [] else  div [ id "notification" ]
+      [ text model.error
+      ]
+    , if model.user.id == "" then div [] [] else div [ id "me" ]
       [ h1 [] [ text ("hello " ++ model.user.id) ]
       , div []
         [ h2 [] [ text "your address:" ]
@@ -114,7 +120,7 @@ view model =
       ]
     ]
 
-assetRow : Balance -> Html Msg
+assetRow : User.Balance -> Html Msg
 assetRow balance =
   tr []
     [ td [] [ text balance.asset ]
