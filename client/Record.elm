@@ -1,0 +1,61 @@
+module Record exposing
+  ( Record, Desc, recordDecoder
+  , DeclareDebt, setCreditor, setAsset, setAmount, declareDebtEncoder
+  )
+
+import Json.Decode as J exposing (field, list, int, string, bool)
+import Json.Encode as E
+
+
+type alias Record =
+  { date : String
+  , kind : String
+  , asset : String
+  , desc : Desc
+  , confirmed : List String
+  , transactions : List String
+  }
+
+
+type Desc
+  = Debt DebtDescription
+
+
+type alias DebtDescription = { from : String, to : String, amount : String }
+
+
+recordDecoder : J.Decoder Record
+recordDecoder =
+  J.map6 Record
+    ( field "date" string )
+    ( field "kind" string )
+    ( field "asset" string )
+    ( field "desc" <| J.oneOf [ debtDecoder ] )
+    ( field "confirmed" <| list string )
+    ( field "transactions" <| list string )
+
+debtDecoder : J.Decoder Desc
+debtDecoder =
+  J.map3 ( \a b c -> Debt (DebtDescription a b c) )
+    ( field "from" string )
+    ( field "to" string )
+    ( field "amount" string )
+
+
+type alias DeclareDebt =
+  { creditor : String
+  , asset : String
+  , amount : String
+  }
+
+setCreditor x dd = { dd | creditor = x } 
+setAsset x dd = { dd | asset = x } 
+setAmount x dd = { dd | amount = x } 
+
+declareDebtEncoder: DeclareDebt -> E.Value
+declareDebtEncoder d =
+  E.object
+    [ ( "creditor", E.string d.creditor )
+    , ( "asset", E.string d.asset )
+    , ( "amount", E.string d.amount )
+    ]

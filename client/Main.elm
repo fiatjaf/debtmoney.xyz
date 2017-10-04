@@ -7,9 +7,10 @@ import Html exposing
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Task exposing (Task)
-import GraphQL.Client.Http
+import Http
+import Json.Decode as JD
+import Json.Encode as JE
 
-import GraphQL as GQL
 import User
 import Record
 
@@ -40,18 +41,18 @@ init flags =
     User.defaultUser
     (Record.DeclareDebt "" "" "0.00")
     ""
-  , GQL.q User.myself |> Task.attempt GotMyself)
+  , fetchUser "_me" |> Http.send GotMyself)
 
 
 -- UPDATE
 
 type Msg
-  = GotMyself (Result GraphQL.Client.Http.Error User.User)
+  = GotMyself (Result Http.Error User.User)
   | TypeDebtCreditor String
   | TypeDebtAsset String
   | TypeDebtAmount String
   | SubmitDebtDeclaration
-  | GotDebtDeclarationResponse (Result GraphQL.Client.Http.Error GQL.Result)
+  | GotDebtDeclarationResponse (Result Http.Error ServerResponse)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -61,7 +62,7 @@ update msg model =
         Ok user ->
           {model | user = user} ! []
         Err err ->
-          {model | error = GQL.errorFormat err} ! []
+          {model | error = errorFormat err} ! []
     TypeDebtCreditor x ->
       {model | declaringDebt = model.declaringDebt |> Record.setCreditor x } ! []
     TypeDebtAsset x ->
@@ -70,8 +71,7 @@ update msg model =
       {model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
     SubmitDebtDeclaration ->
       model !
-        [ ( GQL.m (Record.declareDebt model.declaringDebt) )
-          |> Task.attempt GotDebtDeclarationResponse
+        [ submitDebt model |> Http.send GotDebtDeclarationResponse
         ]
     GotDebtDeclarationResponse result ->
       model ! []
@@ -126,3 +126,35 @@ assetRow balance =
     [ td [] [ text balance.asset ]
     , td [] [ text balance.amount ]
     ]
+
+
+-- HTTP
+
+
+fetchUser : String -> Http.Request User.User
+fetchUser id =
+  Http.get ("/_/user/" ++ id) User.userDecoder
+
+submitDebt : Model -> Http.Request ServerResponse
+submitDebt model =
+  let
+    body = Http.jsonBody <| Record.declareDebtEncoder model.declaringDebt
+  in
+    Http.post "/_/debt" body serverResponseDecoder
+
+errorFormat : Http.Error -> String
+errorFormat err =
+  case err of
+    Http.BadUrl u -> "bad url " ++ u
+    Http.Timeout -> "timeout"
+    Http.NetworkError -> "network error"
+    Http.BadStatus resp ->
+      resp.url ++ " returned " ++ (toString resp.status.code) ++ ": " ++ resp.body
+    Http.BadPayload _ _ -> "bad payload"
+
+type alias ServerResponse =
+  { ok : Bool
+  }
+
+serverResponseDecoder : JD.Decoder ServerResponse
+serverResponseDecoder = JD.map ServerResponse <| JD.field "ok" JD.bool

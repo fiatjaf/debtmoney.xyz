@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -11,8 +10,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/handler"
 	"github.com/jmoiron/sqlx"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog"
@@ -35,7 +32,6 @@ var h *horizon.Client
 var n build.Network
 var pg *sqlx.DB
 var router *mux.Router
-var schema graphql.Schema
 var sessionStore *sessions.CookieStore
 var log = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
@@ -64,15 +60,12 @@ func main() {
 		log.Fatal().Err(err).Str("uri", s.PostgresURL).Msg("failed to connect to pg")
 	}
 
-	// graphql schema
-	schema, err = graphql.NewSchema(schemaConfig)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create graphql schema")
-	}
-	handler := handler.New(&handler.Config{Schema: &schema})
-
 	// define routes
 	router = mux.NewRouter()
+
+	api := router.PathPrefix("/_").Subrouter()
+	api.Path("/user/{id}").Methods("GET").HandlerFunc(getUser)
+	api.Path("/debt").Methods("POST").HandlerFunc(createDebt)
 
 	router.PathPrefix("/app/").Methods("GET").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +73,7 @@ func main() {
 				http.ServeFile(w, r, "./index.html")
 				return
 			}
-			http.ServeFile(w, r, "."+r.URL.Path)
+			http.ServeFile(w, r, "./client/"+r.URL.Path[5:])
 		},
 	)
 	router.Path("/auth/callback").Methods("GET").HandlerFunc(
@@ -118,24 +111,6 @@ func main() {
 				session.Save(r, w)
 				http.Redirect(w, r, "/app/", 302)
 			}
-		},
-	)
-	router.Path("/_graphql").Methods("POST").HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.TODO()
-
-			session, err := sessionStore.Get(r, "auth-session")
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			if userId, ok := session.Values["userId"]; ok {
-				ctx = context.WithValue(ctx, "userId", userId)
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			handler.ContextHandler(ctx, w, r)
 		},
 	)
 	router.Path("/").Methods("GET").HandlerFunc(

@@ -16,12 +16,12 @@ type Record interface {
 }
 
 type BaseRecord struct {
-	Id          int            `json:"-"          db:"id"`
+	Id          int            `json:"-" db:"id"`
 	CreatedAt   time.Time      `json:"created_at" db:"created_at"`
 	RecordDate  time.Time      `json:"record_date" db:"record_date"`
 	Kind        string         `json:"kind" db:"kind"`
 	Asset       string         `json:"asset" db:"asset"`
-	Description types.JSONText `json:"description"       db:"description"`
+	Description types.JSONText `json:"description" db:"description"`
 	// ConfirmedString string `json:"-" db:"confirmed"`
 	Confirmed StringSlice `json:"confirmed" db:"confirmed"`
 	// TransactionsString `json:"-" db:"transactions"`

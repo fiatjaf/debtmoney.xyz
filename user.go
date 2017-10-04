@@ -14,9 +14,10 @@ import (
 )
 
 type User struct {
-	Id      string `json:"id"      db:"id"`
-	Address string `json:"address" db:"address"`
-	Seed    string `json:"-"       db:"seed"`
+	Id       string    `json:"id"       db:"id"`
+	Address  string    `json:"address"  db:"address"`
+	Seed     string    `json:"-"        db:"seed"`
+	Balances []Balance `json:"balances" db:"-"`
 
 	ha horizon.Account
 }
