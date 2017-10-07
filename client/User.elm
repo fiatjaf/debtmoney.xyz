@@ -27,7 +27,7 @@ userDecoder =
     ( field "id" string )
     ( field "address" string )
     ( field "balances" <| list balanceDecoder )
-    ( field "balances" <| list Record.recordDecoder )
+    ( field "records" <| list Record.recordDecoder )
 
 balanceDecoder : J.Decoder Balance
 balanceDecoder =

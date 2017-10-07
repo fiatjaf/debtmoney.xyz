@@ -24,6 +24,7 @@ func logged(r *http.Request) string {
 func jsonify(w http.ResponseWriter, value interface{}, err error) {
 	if err != nil {
 		http.Error(w, err.Error(), 516)
+		return
 	}
 
 	v, err := json.Marshal(value)
@@ -57,7 +58,10 @@ func getUser(w http.ResponseWriter, r *http.Request) {
 				"SELECT name || '@' || source FROM userounts WHERE public = $1",
 				b.Asset.Issuer)
 			if err != nil {
-				log.Error().Err(err).Msg("on asset issuer name query.")
+				log.Error().
+					Str("issuer", b.Asset.Issuer).
+					Err(err).
+					Msg("on asset issuer name query.")
 			}
 			assetName = b.Asset.Code + "#" + issuerName
 		}
@@ -66,6 +70,18 @@ func getUser(w http.ResponseWriter, r *http.Request) {
 			Asset:  assetName,
 			Amount: b.Balance,
 		}
+	}
+
+	// user records
+	err = pg.Select(&user.Records, `
+SELECT * FROM records
+WHERE description->>'to' = $1
+   OR description->>'from' = $1
+        `,
+		user.Id)
+	if err != nil {
+		log.Error().Str("user", user.Id).Err(err).Msg("on user records query")
+		err = nil
 	}
 
 	jsonify(w, user, err)

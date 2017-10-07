@@ -14,10 +14,11 @@ import (
 )
 
 type User struct {
-	Id       string    `json:"id"       db:"id"`
-	Address  string    `json:"address"  db:"address"`
-	Seed     string    `json:"-"        db:"seed"`
-	Balances []Balance `json:"balances" db:"-"`
+	Id       string       `json:"id"       db:"id"`
+	Address  string       `json:"address"  db:"address"`
+	Seed     string       `json:"-"        db:"seed"`
+	Balances []Balance    `json:"balances" db:"-"`
+	Records  []BaseRecord `json:"records"  db:"-"`
 
 	ha horizon.Account
 }

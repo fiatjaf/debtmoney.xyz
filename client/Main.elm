@@ -12,7 +12,7 @@ import Json.Decode as JD
 import Json.Encode as JE
 
 import User
-import Record
+import Record exposing (Desc(..))
 
 
 type alias Flags = {}
@@ -89,10 +89,26 @@ view : Model -> Html Msg
 view model =
   div []
     [ if model.error == "" then div [] [] else  div [ id "notification" ]
-      [ text model.error
+      [ text <| "error: " ++ model.error
       ]
     , if model.user.id == "" then div [] [] else div [ id "me" ]
       [ h1 [] [ text ("hello " ++ model.user.id) ]
+      , div []
+        [ h2 [] [ text "your operations:" ]
+        , table []
+          [ thead []
+            [ tr []
+              [ th [] [ text "date" ]
+              , th [] [ text "kind" ]
+              , th [] [ text "description" ]
+              , th [] [ text "confirmed" ]
+              , th [] [ text "transactions" ]
+              ]
+            ]
+          , tbody []
+            <| List.map recordRow model.user.records
+          ]
+        ]
       , div []
         [ h2 [] [ text "your address:" ]
         , p [] [ text model.user.address]
@@ -117,6 +133,34 @@ view model =
         , input [ type_ "number", step "0.01", onInput TypeDebtAmount ] []
         , button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
         ]
+      ]
+    ]
+
+recordRow : Record.Record -> Html Msg
+recordRow record =
+  tr []
+    [ td [] [ text record.date ]
+    , td [] [ text record.kind ]
+    , td []
+      [ case record.desc of
+        Debt debt ->
+          text <|
+            debt.from ++ " has borrowed " ++ debt.amount ++ " " ++
+            record.asset ++ " from " ++ debt.to
+      ]
+    , td []
+      [ table []
+        [ tr [] <|
+          List.map
+            (\confirmed -> td [] [ text confirmed ])
+            record.confirmed
+        ]
+      ]
+    , td []
+      [ table []
+        <| List.map
+            (\txn -> tr [] [ td [] [ text txn ] ])
+            record.transactions
       ]
     ]
 
@@ -150,7 +194,7 @@ errorFormat err =
     Http.NetworkError -> "network error"
     Http.BadStatus resp ->
       resp.url ++ " returned " ++ (toString resp.status.code) ++ ": " ++ resp.body
-    Http.BadPayload _ _ -> "bad payload"
+    Http.BadPayload x y -> "bad payload (" ++ x ++ ")"
 
 type alias ServerResponse =
   { ok : Bool

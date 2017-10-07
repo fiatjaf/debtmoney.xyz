@@ -1,5 +1,5 @@
 module Record exposing
-  ( Record, Desc, recordDecoder
+  ( Record, Desc(..), recordDecoder
   , DeclareDebt, setCreditor, setAsset, setAmount, declareDebtEncoder
   )
 
@@ -27,10 +27,10 @@ type alias DebtDescription = { from : String, to : String, amount : String }
 recordDecoder : J.Decoder Record
 recordDecoder =
   J.map6 Record
-    ( field "date" string )
+    ( field "created_at" string )
     ( field "kind" string )
     ( field "asset" string )
-    ( field "desc" <| J.oneOf [ debtDecoder ] )
+    ( field "description" <| J.oneOf [ debtDecoder ] )
     ( field "confirmed" <| list string )
     ( field "transactions" <| list string )
 
@@ -39,7 +39,7 @@ debtDecoder =
   J.map3 ( \a b c -> Debt (DebtDescription a b c) )
     ( field "from" string )
     ( field "to" string )
-    ( field "amount" string )
+    ( field "amt" string )
 
 
 type alias DeclareDebt =
