@@ -3,8 +3,6 @@ package main
 import (
 	"strconv"
 
-	napping "gopkg.in/jmcvetta/napping.v3"
-
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
@@ -21,17 +19,6 @@ type User struct {
 	Records  []BaseRecord `json:"records"  db:"-"`
 
 	ha horizon.Account
-}
-
-func lookupUser(name string) (res struct {
-	Id   string `json:"id"`
-	Type string `json:"type"`
-}, err error) {
-	r, err := napping.Get(UUD+"/lookup/"+name, nil, &res, nil)
-	if r.Status() > 299 && err == nil {
-		err = errors.New("uud returned error: " + strconv.Itoa(r.Status()))
-	}
-	return
 }
 
 func ensureUser(id string) (user User, err error) {

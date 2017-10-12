@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/fiatjaf/uud-go"
 	"github.com/gorilla/mux"
 )
 
@@ -73,6 +74,7 @@ func getUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// user records
+	user.Records = []BaseRecord{}
 	err = pg.Select(&user.Records, `
 SELECT * FROM records
 WHERE description->>'to' = $1
@@ -116,7 +118,7 @@ func createDebt(w http.ResponseWriter, r *http.Request) {
 		Str("amount", args.Amount).
 		Msg("looking up creditor")
 
-	look, err := lookupUser(args.Creditor)
+	look, err := uud.LookupUser(args.Creditor)
 	if err != nil {
 		jsonify(w, nil, err)
 		return

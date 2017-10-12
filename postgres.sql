@@ -27,3 +27,6 @@ CREATE TABLE records (
                     -- the transactions are published.
   transactions text[] DEFAULT '{}'::text[]
 );
+
+CREATE INDEX ON records ((description->>'from'));
+CREATE INDEX ON records ((description->>'to'));

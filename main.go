@@ -1,13 +1,15 @@
 package main
 
 import (
-	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
 
+	"github.com/fiatjaf/uud-go"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
@@ -35,16 +37,13 @@ var router *mux.Router
 var sessionStore *sessions.CookieStore
 var log = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-const (
-	UUD = "https://cantillon.alhur.es:6336"
-)
-
 func main() {
 	err = envconfig.Process("", &s)
 	if err != nil {
 		log.Fatal().Err(err).Msg("couldn't process envconfig.")
 	}
 
+	uud.HOST = "https://cantillon.alhur.es:6336"
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
 	// cookie store
@@ -80,24 +79,10 @@ func main() {
 		func(w http.ResponseWriter, r *http.Request) {
 			code := r.URL.Query().Get("code")
 
-			resp, err := http.Post(
-				"https://unified-users-database.herokuapp.com/verify/"+code,
-				"text/plain",
-				nil,
-			)
-			if err != nil {
-				http.Error(w, err.Error(), 503)
-				return
-			}
+			user, err := uud.VerifyAuth(code)
 
-			content, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			userId := string(content)
-			if userId == "" {
+				log.Error().Err(err).Msg("invalid authorization")
 				http.Error(w, "invalid authorization", 401)
 				return
 			} else {
@@ -107,7 +92,35 @@ func main() {
 					return
 				}
 
-				session.Values["userId"] = userId
+				// we now check if this user owns one of the accounts
+				// we have registered here (like if some debtmoney user
+				// has declared a debt with fulano@twitter we want to
+				// know if this new logged user owns fulano@twitter and
+				// redirect these debts to him).
+				params := make([]interface{}, len(user.Accounts)+1)
+				params[0] = user.Id
+				accvars := make([]string, len(user.Accounts))
+				for i, account := range user.Accounts {
+					params[i+1] = account.Account
+					accvars[i] = "$" + strconv.Itoa(i+2)
+				}
+				vars := strings.Join(accvars, ",")
+
+				_, err = pg.Exec(`
+UPDATE records SET description = CASE
+  WHEN description->>'from' IN (`+vars+`) THEN jsonb_set(description, '{from}', to_jsonb($1::text))
+  WHEN description->>'to' IN (`+vars+`) THEN jsonb_set(description, '{to}', to_jsonb($1::text))
+END
+  WHERE description->>'from' IN (`+vars+`)
+     OR description->>'to' IN (`+vars+`)
+                `, params...)
+				if err != nil {
+					log.Error().Err(err).Str("user", user.Id).
+						Msg("failed to update accounts to user")
+				}
+
+				// finally we set up the session
+				session.Values["userId"] = user.Id
 				session.Save(r, w)
 				http.Redirect(w, r, "/app/", 302)
 			}
