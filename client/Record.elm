@@ -8,7 +8,8 @@ import Json.Encode as E
 
 
 type alias Record =
-  { date : String
+  { id : Int
+  , date : String
   , kind : String
   , asset : String
   , desc : Desc
@@ -26,7 +27,8 @@ type alias DebtDescription = { from : String, to : String, amount : String }
 
 recordDecoder : J.Decoder Record
 recordDecoder =
-  J.map6 Record
+  J.map7 Record
+    ( field "id" int )
     ( field "created_at" string )
     ( field "kind" string )
     ( field "asset" string )

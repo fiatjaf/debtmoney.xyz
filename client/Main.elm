@@ -37,26 +37,32 @@ type alias Model =
 
 init : Flags -> (Model, Cmd Msg)
 init flags =
-  ( Model
-    User.defaultUser
-    (Record.DeclareDebt "" "" "0.00")
-    ""
-  , fetchUser "_me" |> Http.send GotMyself)
+  let 
+    m = Model
+      User.defaultUser
+      (Record.DeclareDebt "" "" "0.00")
+      ""
+  in
+    update LoadMyself m
 
 
 -- UPDATE
 
 type Msg
-  = GotMyself (Result Http.Error User.User)
+  = LoadMyself
+  | GotMyself (Result Http.Error User.User)
   | TypeDebtCreditor String
   | TypeDebtAsset String
   | TypeDebtAmount String
   | SubmitDebtDeclaration
   | GotDebtDeclarationResponse (Result Http.Error ServerResponse)
+  | ConfirmRecord Int
+  | GotRecordConfirmationResponse (Result Http.Error ServerResponse)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    LoadMyself -> model ! [ fetchUser "_me" |> Http.send GotMyself ]
     GotMyself result ->
       case result of
         Ok user ->
@@ -70,11 +76,17 @@ update msg model =
     TypeDebtAmount x ->
       {model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
     SubmitDebtDeclaration ->
-      model !
-        [ submitDebt model |> Http.send GotDebtDeclarationResponse
-        ]
+      ( model
+      , submitDebt model |> Http.send GotDebtDeclarationResponse
+      )
     GotDebtDeclarationResponse result ->
-      model ! []
+      update LoadMyself model
+    ConfirmRecord recordId ->
+      ( model
+      , submitConfirmation recordId |> Http.send GotRecordConfirmationResponse
+      )
+    GotRecordConfirmationResponse result ->
+      update LoadMyself model
 
 
 -- SUBSCRIPTIONS
@@ -103,10 +115,11 @@ view model =
               , th [] [ text "description" ]
               , th [] [ text "confirmed" ]
               , th [] [ text "transactions" ]
+              , th [] [ text "pending" ]
               ]
             ]
           , tbody []
-            <| List.map recordRow model.user.records
+            <| List.map (recordRow model.user.id) model.user.records
           ]
         ]
       , div []
@@ -136,8 +149,8 @@ view model =
       ]
     ]
 
-recordRow : Record.Record -> Html Msg
-recordRow record =
+recordRow : String -> Record.Record -> Html Msg
+recordRow userId record =
   tr []
     [ td [] [ text record.date ]
     , td [] [ text record.kind ]
@@ -162,6 +175,11 @@ recordRow record =
             (\txn -> tr [] [ td [] [ text txn ] ])
             record.transactions
       ]
+    , td []
+      [ if List.member userId record.confirmed
+        then text "no"
+        else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
+      ]
     ]
 
 assetRow : User.Balance -> Html Msg
@@ -185,6 +203,13 @@ submitDebt model =
     body = Http.jsonBody <| Record.declareDebtEncoder model.declaringDebt
   in
     Http.post "/_/debt" body serverResponseDecoder
+
+submitConfirmation : Int -> Http.Request ServerResponse
+submitConfirmation recordId =
+  Http.post
+    ("/_/record/" ++ (toString recordId) ++ "/confirm")
+    Http.emptyBody
+    serverResponseDecoder
 
 errorFormat : Http.Error -> String
 errorFormat err =

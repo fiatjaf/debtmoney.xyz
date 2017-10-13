@@ -1,22 +1,14 @@
 package main
 
 import (
-	"database/sql/driver"
-	"fmt"
-	"strconv"
-	"strings"
+	"errors"
 	"time"
 
 	"github.com/jmoiron/sqlx/types"
 )
 
-type Record interface {
-	Confirm(string) error
-	Publish() error
-}
-
 type BaseRecord struct {
-	Id           int            `json:"-"            db:"id"`
+	Id           int            `json:"id"           db:"id"`
 	CreatedAt    time.Time      `json:"created_at"   db:"created_at"`
 	RecordDate   time.Time      `json:"record_date"  db:"record_date"`
 	Kind         string         `json:"kind"         db:"kind"`
@@ -26,26 +18,35 @@ type BaseRecord struct {
 	Transactions StringSlice    `json:"transactions" db:"transactions"`
 }
 
-type StringSlice []string
+func confirmRecord(recordId int, userId string) error {
+	log.Info().
+		Int("record", recordId).
+		Str("user", userId).
+		Msg("updating record with confirmation")
 
-func (stringSlice StringSlice) Value() (driver.Value, error) {
-	var quotedStrings []string
-	for _, str := range stringSlice {
-		quotedStrings = append(quotedStrings, strconv.Quote(str))
+	var r BaseRecord
+	err := pg.Get(&r, `
+UPDATE records
+SET confirmed = array_append(confirmed, $1)
+WHERE id = $2
+RETURNING *
+    `, userId, recordId)
+	if err != nil {
+		log.Error().Err(err).Msg("error appending confirmation")
+		return errors.New("couldn't confirm.")
 	}
-	value := fmt.Sprintf("{ %s }", strings.Join(quotedStrings, ","))
-	return value, nil
-}
 
-func (stringSlice *StringSlice) Scan(src interface{}) error {
-	val, ok := src.([]byte)
-	if !ok {
-		return fmt.Errorf("unable to scan")
+	// now we examine to see if we must publish this.
+	switch r.Kind {
+	case "debt":
+		d, err := instantiateDebtRecord(r)
+		if err != nil {
+			return err
+		}
+		return d.confirmed()
+	case "payment":
+	case "bill-split":
 	}
-	value := strings.TrimPrefix(string(val), "{")
-	value = strings.TrimSuffix(value, "}")
 
-	*stringSlice = strings.Split(value, ",")
-
-	return nil
+	return errors.New("should never happen")
 }

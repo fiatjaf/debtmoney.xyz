@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"strconv"
 
+	"github.com/jmoiron/sqlx/types"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
@@ -161,9 +163,18 @@ func (rec User) trust(iss User, asset string, newAmount string) error {
 			free := limit.Sub(balance)
 			if free.GreaterThan(newAmountd) {
 				need = zero
+			} else {
+				need = newAmountd.Add(limit).Sub(free)
 			}
 		}
 	}
+
+	log.Debug().
+		Str("truster", rec.Id).
+		Str("trustee", iss.Id).
+		Str("need", need.String()).
+		Bool("fund", fund).
+		Msg("adjusting trustline")
 
 	if need.Equals(zero) {
 		return nil
@@ -202,6 +213,24 @@ func (rec User) trust(iss User, asset string, newAmount string) error {
 		return err
 	}
 	return nil
+}
+
+func (me User) createDebt(from, to, assetCode, amount string) (*BaseRecord, error) {
+	var r BaseRecord
+
+	desc, _ := json.Marshal(Debt{
+		From:   from,
+		To:     to,
+		Amount: amount,
+	})
+
+	err := pg.Get(&r, `
+INSERT INTO records (kind, description, asset, confirmed)
+VALUES ('debt', $1, $2, $3)
+RETURNING *
+    `, types.JSONText(desc), assetCode, StringSlice{me.Id})
+
+	return &r, err
 }
 
 type Balance struct {

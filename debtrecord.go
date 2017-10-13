@@ -1,16 +1,13 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
-
-	"github.com/jmoiron/sqlx/types"
 	b "github.com/stellar/go/build"
 )
 
 type DebtRecord struct {
 	BaseRecord
 
+	Debt Debt
 	From User
 	To   User
 }
@@ -21,98 +18,97 @@ type Debt struct {
 	Amount string `json:"amt"`
 }
 
-func (me User) simpleDebt(from, to, assetCode, amount string) (*DebtRecord, error) {
-	var r DebtRecord
+func instantiateDebtRecord(r BaseRecord) (d DebtRecord, err error) {
+	d.BaseRecord = r
 
-	desc, _ := json.Marshal(Debt{
-		From:   from,
-		To:     to,
-		Amount: amount,
-	})
+	err = r.Description.Unmarshal(&d.Debt)
+	if err != nil {
+		return
+	}
 
-	err := pg.Get(&r, `
-INSERT INTO records (kind, description, asset, confirmed)
-VALUES ('debt', $1, $2, $3)
-RETURNING *
-    `, types.JSONText(desc), assetCode, StringSlice{me.Id})
+	var u User
+	if u, err = ensureUser(d.Debt.From); err == nil {
+		d.From = u
+	} else {
+		return
+	}
+	if u, err = ensureUser(d.Debt.To); err == nil {
+		d.To = u
+	} else {
+		return
+	}
 
-	return &r, err
+	return
 }
 
-func (r *DebtRecord) Confirm(userId string) error {
-	log.Info().
-		Int("record", r.Id).
-		Str("user", userId).
-		Msg("updating record with confirmation")
-	pg.Get(r, `
-UPDATE records
-SET confirmed = array_append(confirmed, $1)
-WHERE id = $2
-RETURNING *
-    `, userId, r.Id)
-
-	log.Info().Msg("unmarshaling debt desc")
-	var desc Debt
-	err := r.Description.Unmarshal(&desc)
-	if err != nil {
-		return err
-	}
+func (d DebtRecord) confirmed() error {
 	var fromConfirmed bool
 	var toConfirmed bool
-	for _, uconfirmed := range r.Confirmed {
-		if uconfirmed == desc.From {
+	for _, uconfirmed := range d.Confirmed {
+		if uconfirmed == d.Debt.From {
 			fromConfirmed = true
 		}
-		if uconfirmed == desc.To {
+		if uconfirmed == d.Debt.To {
 			toConfirmed = true
 		}
 	}
 	if fromConfirmed && toConfirmed {
 		log.Info().Msg("all confirmed, let's publish")
-		return r.Publish()
+		return d.publish()
 	}
 
-	return errors.New("couldn't confirm.")
+	return nil
 }
 
-func (r DebtRecord) Publish() error {
-	log.Info().Int("record", r.Id).Msg("publishing")
-	log.Info().Msg("fetching debt desc")
-	var desc Debt
-	err := r.Description.Unmarshal(&desc)
-	if err != nil {
-		return err
-	}
+func (d DebtRecord) publish() error {
+	log.Info().Int("record", d.Id).Msg("publishing")
 
-	log.Info().Msg("adjusting trustline")
-	err = r.To.trust(r.From, r.Asset, desc.Amount)
+	err = d.To.trust(d.From, d.Asset, d.Debt.Amount)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to adjust trustline")
 		return err
 	}
 
 	log.Info().Msg("publishing a single transaction")
 	tx := b.Transaction(
 		n,
-		b.SourceAccount{r.From.Address},
+		b.SourceAccount{d.From.Address},
 		b.AutoSequence{h},
 		b.Payment(
-			b.Destination{r.To.Address},
-			b.CreditAmount{r.Asset, r.From.Address, desc.Amount},
+			b.Destination{d.To.Address},
+			b.CreditAmount{d.Asset, d.From.Address, d.Debt.Amount},
 		),
 	)
 	if tx.Err != nil {
+		log.Error().Err(err).Msg("failed to build transaction")
 		return tx.Err
 	}
 
-	txe := tx.Sign(r.From.Seed)
+	txe := tx.Sign(d.From.Seed)
 	blob, err := txe.Base64()
 	if err != nil {
+		log.Error().Err(err).Msg("failed to sign transaction")
 		return err
 	}
 
-	_, err = h.SubmitTransaction(blob)
+	success, err := h.SubmitTransaction(blob)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to build transaction")
 		return err
 	}
+
+	// published successfully, append to record
+	_, err = pg.Exec(`
+UPDATE records
+   SET transactions = array_append(transactions, $2)
+ WHERE id = $1
+    `, d.Id, success.Hash)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("hash", success.Hash).
+			Msg("failed to append transaction to record")
+	}
+
 	return nil
 }

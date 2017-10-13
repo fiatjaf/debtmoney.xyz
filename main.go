@@ -63,8 +63,9 @@ func main() {
 	router = mux.NewRouter()
 
 	api := router.PathPrefix("/_").Subrouter()
-	api.Path("/user/{id}").Methods("GET").HandlerFunc(getUser)
-	api.Path("/debt").Methods("POST").HandlerFunc(createDebt)
+	api.Path("/user/{id}").Methods("GET").HandlerFunc(handleGetUser)
+	api.Path("/debt").Methods("POST").HandlerFunc(handleCreateDebt)
+	api.Path("/record/{id}/confirm").Methods("POST").HandlerFunc(handleConfirm)
 
 	router.PathPrefix("/app/").Methods("GET").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
