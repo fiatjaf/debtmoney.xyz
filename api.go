@@ -72,6 +72,7 @@ func handleGetUser(w http.ResponseWriter, r *http.Request) {
 		user.Balances[i] = Balance{
 			Asset:  assetName,
 			Amount: b.Balance,
+			Limit:  b.Limit,
 		}
 	}
 

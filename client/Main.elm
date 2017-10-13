@@ -133,6 +133,7 @@ view model =
             [ tr []
               [ th [] [ text "asset" ]
               , th [] [ text "amount" ]
+              , th [] [ text "trust limit" ]
               ]
             ]
           , tbody []
@@ -187,6 +188,7 @@ assetRow balance =
   tr []
     [ td [] [ text balance.asset ]
     , td [] [ text balance.amount ]
+    , td [] [ text balance.limit ]
     ]
 
 

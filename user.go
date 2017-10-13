@@ -236,4 +236,5 @@ RETURNING *
 type Balance struct {
 	Asset  string `json:"asset"`
 	Amount string `json:"amount"`
+	Limit  string `json:"limit"`
 }

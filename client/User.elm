@@ -15,6 +15,7 @@ type alias User =
 type alias Balance =
   { asset : String
   , amount : String
+  , limit : String
   }
 
 defaultUser : User
@@ -31,6 +32,7 @@ userDecoder =
 
 balanceDecoder : J.Decoder Balance
 balanceDecoder =
-  J.map2 Balance
+  J.map3 Balance
     ( field "asset" string )
     ( field "amount" string )
+    ( field "limit" string )
