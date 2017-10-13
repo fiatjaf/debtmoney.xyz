@@ -2,10 +2,13 @@ import Html exposing
   ( Html, text
   , h1, h2, div, textarea, button, p, a
   , table, tbody, thead, tr, th, td
-  , input, select, option
+  , input, select, option, header, nav
+  , span
   )
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput, onSubmit)
+import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
+import Navigation exposing (Location)
+import Route exposing ((:=), static, (</>))
 import Task exposing (Task)
 import Http
 import Json.Decode as JD
@@ -21,8 +24,11 @@ import Record exposing (Desc(..))
 type alias Flags = {}
 
 
+prefix = "/app"
+
 main =
-  Html.programWithFlags
+  Navigation.programWithFlags
+    parseRoute
     { init = init
     , view = view
     , update = update
@@ -30,30 +36,63 @@ main =
     }
 
 
+-- ROUTES
+type Page
+  = HomePage
+  | RecordPage Int
+  | UserPage String
+  | NotFound
+
+homePage = HomePage := static ""
+recordPage = RecordPage := static "record" </> Route.int
+userPage = UserPage := static "user" </> Route.string
+
+routes = Route.router [homePage, recordPage, userPage]
+
+match : String -> Page
+match
+  = String.dropLeft (String.length prefix)
+  >> Debug.log "navigated to location"
+  >> Route.match routes
+  >> Debug.log "matched route"
+  >> Maybe.withDefault NotFound
+
+parseRoute : Location -> Msg
+parseRoute = (.pathname) >> Navigate
+
+
 -- MODEL
 type alias Model =
-  { user : User.User
+  { me : User.User
+  , route : Page
+  , user : User.User
   , declaringDebt : Record.DeclareDebt
   , error : String
   }
 
 
-init : Flags -> (Model, Cmd Msg)
-init flags =
+init : Flags -> Location -> (Model, Cmd Msg)
+init flags location =
   let 
-    m = Model
-      User.defaultUser
-      (Record.DeclareDebt "" "" "0.00")
-      ""
+    (m, loadmyself) = update LoadMyself
+      <| Model
+        User.defaultUser
+        HomePage
+        User.defaultUser
+        (Record.DeclareDebt "" "" "0.00")
+        ""
+    (nextm, handlelocation) = update (Navigate location.pathname) m
   in
-    update LoadMyself m
+    nextm ! [ loadmyself, handlelocation ]
 
 
 -- UPDATE
 
 type Msg
-  = LoadMyself
+  = Navigate String
+  | LoadMyself
   | GotMyself (Result Http.Error User.User)
+  | GotUser (Result Http.Error User.User)
   | TypeDebtCreditor String
   | TypeDebtAsset String
   | TypeDebtAmount String
@@ -65,8 +104,33 @@ type Msg
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    LoadMyself -> model ! [ fetchUser "_me" |> Http.send GotMyself ]
+    Navigate pathname ->
+      let
+        route = match pathname
+        res = if route == model.route
+          then (model, Cmd.none)
+          else { model | route = route } !
+            [ case route of
+              HomePage -> fetchUser "_me" |> Http.send GotMyself
+              RecordPage r -> Cmd.none
+              UserPage u -> fetchUser u |> Http.send GotUser
+              NotFound -> Cmd.none
+            , Navigation.newUrl pathname
+            ]
+      in
+        res
+          
+    LoadMyself ->
+      ( model
+      , fetchUser "_me" |> Http.send GotMyself
+      )
     GotMyself result ->
+      case result of
+        Ok user ->
+          {model | me = user} ! []
+        Err err ->
+          {model | error = errorFormat err} ! []
+    GotUser result ->
       case result of
         Ok user ->
           {model | user = user} ! []
@@ -103,80 +167,108 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
   div []
-    [ if model.error == "" then div [] [] else  div [ id "notification" ]
-      [ text <| "error: " ++ model.error
+    [ header []
+      [ if model.error == "" then div [] [] else  div [ id "notification" ]
+        [ text <| "error: " ++ model.error
+        ]
+      , if model.me.id == "" then div [] [] else div [ id "me" ]
+        [ h1 []
+          [ text "hello "
+          , melink model.me.id
+          ]
+        ]
       ]
-    , if model.user.id == "" then div [] [] else div [ id "me" ]
-      [ h1 [] [ text ("hello " ++ model.user.id) ]
-      , div []
-        [ h2 [] [ text "your operations:" ]
-        , table []
-          [ thead []
-            [ tr []
-              [ th [] [ text "date" ]
-              , th [] [ text "description" ]
-              , th [] [ text "confirmed" ]
-              , th [] [ text "transactions" ]
-              ]
-            ]
-          , tbody []
-            <| List.map (recordRow model.user.id) model.user.records
-          ]
-        ]
-      , div []
-        [ h2 [] [ text "your address:" ]
-        , p [] [ text model.user.address]
-        ]
-      , div []
-        [ h2 [] [ text "your balances:" ]
-        , table []
-          [ thead []
-            [ tr []
-              [ th [] [ text "asset" ]
-              , th [] [ text "amount" ]
-              , th [] [ text "trust limit" ]
-              ]
-            ]
-          , tbody []
-            <| List.map assetRow model.user.balances
-          ]
-        ]
-      , div []
-        [ h2 [] [ text "declare a debt" ]
-        , input [ type_ "text", onInput TypeDebtCreditor ] []
-        , input [ type_ "text", onInput TypeDebtAsset ] []
-        , input [ type_ "number", step "0.01", onInput TypeDebtAmount ] []
-        , button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
-        ]
+    , div []
+      [ case model.route of
+        HomePage -> userView True model.me
+        RecordPage r -> div [] []
+        UserPage u -> userView (model.user.id == model.me.id) model.user
+        NotFound -> div [] [ text "this page doesn't exists" ]
       ]
     ]
 
-recordRow : String -> Record.Record -> Html Msg
-recordRow userId record =
+
+userView : Bool -> User.User -> Html Msg
+userView itsme user =
+  div [ id "user" ]
+    [ h1 []
+      [ text
+        <| (if itsme then "your" else user.id ++ "'s") ++ " profile"
+      ]
+    , div []
+      [ h2 [] [ text "operations:" ]
+      , table []
+        [ thead []
+          [ tr []
+            [ th [] [ text "date" ]
+            , th [] [ text "description" ]
+            , th [] [ text "confirmed" ]
+            , th [] [ text "transactions" ]
+            ]
+          ]
+        , tbody []
+          <| List.map (recordRow itsme user.id) user.records
+        ]
+      ]
+    , div []
+      [ h2 [] [ text "address:" ]
+      , p [] [ text user.address]
+      ]
+    , div []
+      [ h2 [] [ text "balances:" ]
+      , table []
+        [ thead []
+          [ tr []
+            [ th [] [ text "asset" ]
+            , th [] [ text "amount" ]
+            , th [] [ text "trust limit" ]
+            ]
+          ]
+        , tbody []
+          <| List.map assetRow user.balances
+        ]
+      ]
+    , div []
+      [ h2 [] [ text "declare a debt" ]
+      , input [ type_ "text", onInput TypeDebtCreditor ] []
+      , input [ type_ "text", onInput TypeDebtAsset ] []
+      , input [ type_ "number", step "0.01", onInput TypeDebtAmount ] []
+      , button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
+      ]
+    ]
+
+recordRow : Bool -> String -> Record.Record -> Html Msg
+recordRow itsme userId record =
   let 
     date = Date.fromString
       >> Result.withDefault (Date.fromTime 0)
       >> Date.Format.format "%B %e %Y"
     confirm =
-      if List.member userId record.confirmed
-      then text ""
-      else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
+      if itsme
+        then if List.member userId record.confirmed
+        then text ""
+        else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
+      else text ""
   in
     tr []
       [ td [] [ text <| date record.date ]
       , td []
         [ case record.desc of
           Debt debt ->
-            text <|
-              debt.from ++ " has borrowed " ++ debt.amount ++ " " ++
-              record.asset ++ " from " ++ debt.to
+            span []
+              [ userlink debt.from
+              , text " has borrowed "
+              , amount record.asset debt.amount
+              , text " from "
+              , userlink debt.to
+              ]
         ]
       , td []
         [ table []
           [ tr []
             <| confirm ::
               List.map
-                (td [] << List.singleton << text)
+                (td [] << List.singleton << userlink)
                 record.confirmed
           ]
         ]
@@ -195,6 +287,32 @@ assetRow balance =
     , td [] [ text balance.amount ]
     , td [] [ text balance.limit ]
     ]
+
+userlink : String -> Html Msg
+userlink userId =
+  a
+    [ class "userlink"
+    , onWithOptions
+      "click"
+      { stopPropagation = True, preventDefault = True }
+      (JD.succeed <| Navigate (prefix ++ "/user/" ++ userId))
+    , href <| prefix ++ "/user/" ++ userId
+    ] [ text userId ]
+
+melink : String -> Html Msg
+melink userId =
+  a
+    [ class "userlink me"
+    , onWithOptions
+      "click"
+      { stopPropagation = True, preventDefault = True }
+      (JD.succeed <| Navigate (prefix ++ "/"))
+    , href <| prefix ++ "/"
+    ] [ text userId ]
+
+amount : String -> String -> Html Msg
+amount asset amt =
+  span [ class "amount" ] [ text <| amt ++ " " ++ asset ]
 
 
 -- HTTP

@@ -1,1 +1,19 @@
 body {}
+
+a {
+  cursor: pointer;
+  text-decoration: none;
+  color: blue;
+}
+
+.userlink {
+  color: #2ba042;
+}
+  .userlink:hover { text-decoration: underline; }
+  .userlink.me { color: #123abc; }
+
+.amount {
+  padding: 12px;
+  font-size: 1.1em;
+  font-weight: bold;
+}
