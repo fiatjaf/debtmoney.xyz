@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/fiatjaf/uud-go"
 	"github.com/gorilla/mux"
@@ -114,6 +115,7 @@ func handleCreateDebt(w http.ResponseWriter, r *http.Request) {
 		jsonify(w, nil, err)
 		return
 	}
+	args.Creditor = strings.ToLower(args.Creditor)
 
 	log.Info().
 		Str("from", me.Id).
@@ -136,8 +138,13 @@ func handleCreateDebt(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Int("id", debt.Id).Msg("debt created, should we confirm?")
 
+	// will confirm automatically for the creditor if he is a registered user
 	if look.Id != "" {
-		err = confirmRecord(debt.Id, look.Id)
+		var registered bool
+		err = pg.Get(&registered, "SELECT true FROM users WHERE id = $1", look.Id)
+		if err == nil && registered {
+			err = confirmRecord(debt.Id, look.Id)
+		}
 	}
 
 	jsonify(w, nil, err)

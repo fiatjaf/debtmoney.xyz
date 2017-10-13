@@ -3,7 +3,8 @@ CREATE TABLE users (
   address text,
   seed text,
 
-  CONSTRAINT id_validator CHECK (id ~ '[\w_]')
+  CONSTRAINT id_size CHECK (char_length(id) < 22),
+  CONSTRAINT id_validator CHECK (id ~ '^[a-z][\w_]+$')
 );
 
 CREATE TYPE record_kind AS ENUM (

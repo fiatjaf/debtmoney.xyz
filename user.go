@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/jmoiron/sqlx/types"
 	"github.com/kr/pretty"
@@ -24,6 +25,8 @@ type User struct {
 }
 
 func ensureUser(id string) (user User, err error) {
+	id = strings.ToLower(id)
+
 	txn, err := pg.Beginx()
 	if err != nil {
 		return
@@ -33,7 +36,7 @@ func ensureUser(id string) (user User, err error) {
 	log.Info().Str("id", id).Msg("checking account existence")
 	err = txn.Get(&user, `
 SELECT * FROM users
-WHERE id = $1
+ WHERE id = $1
     `, id)
 	if err != nil && err.Error() != "sql: no rows in result set" {
 		return
@@ -62,8 +65,7 @@ WHERE id = $1
 	}
 
 	_, err = txn.Exec(`
-INSERT INTO users
-(id, address, seed)
+INSERT INTO users (id, address, seed)
 VALUES ($1, $2, $3)
     `, id, pair.Address(), pair.Seed())
 	if err != nil {
