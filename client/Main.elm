@@ -117,7 +117,6 @@ view model =
               , th [] [ text "description" ]
               , th [] [ text "confirmed" ]
               , th [] [ text "transactions" ]
-              , th [] [ text "pending" ]
               ]
             ]
           , tbody []
@@ -158,6 +157,10 @@ recordRow userId record =
     date = Date.fromString
       >> Result.withDefault (Date.fromTime 0)
       >> Date.Format.format "%B %e %Y"
+    confirm =
+      if List.member userId record.confirmed
+      then text ""
+      else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
   in
     tr []
       [ td [] [ text <| date record.date ]
@@ -170,22 +173,18 @@ recordRow userId record =
         ]
       , td []
         [ table []
-          [ tr [] <|
-            List.map
-              (\confirmed -> td [] [ text confirmed ])
-              record.confirmed
+          [ tr []
+            <| confirm ::
+              List.map
+                (td [] << List.singleton << text)
+                record.confirmed
           ]
         ]
       , td []
         [ table []
           <| List.map
-              (\txn -> tr [] [ td [] [ text txn ] ])
+              (tr [] << List.singleton << td [] << List.singleton << text)
               record.transactions
-        ]
-      , td []
-        [ if List.member userId record.confirmed
-          then text "no"
-          else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
         ]
       ]
 
