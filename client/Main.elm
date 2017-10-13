@@ -10,6 +10,9 @@ import Task exposing (Task)
 import Http
 import Json.Decode as JD
 import Json.Encode as JE
+import Result
+import Date
+import Date.Format
 
 import User
 import Record exposing (Desc(..))
@@ -111,7 +114,6 @@ view model =
           [ thead []
             [ tr []
               [ th [] [ text "date" ]
-              , th [] [ text "kind" ]
               , th [] [ text "description" ]
               , th [] [ text "confirmed" ]
               , th [] [ text "transactions" ]
@@ -152,36 +154,40 @@ view model =
 
 recordRow : String -> Record.Record -> Html Msg
 recordRow userId record =
-  tr []
-    [ td [] [ text record.date ]
-    , td [] [ text record.kind ]
-    , td []
-      [ case record.desc of
-        Debt debt ->
-          text <|
-            debt.from ++ " has borrowed " ++ debt.amount ++ " " ++
-            record.asset ++ " from " ++ debt.to
-      ]
-    , td []
-      [ table []
-        [ tr [] <|
-          List.map
-            (\confirmed -> td [] [ text confirmed ])
-            record.confirmed
+  let 
+    date = Date.fromString
+      >> Result.withDefault (Date.fromTime 0)
+      >> Date.Format.format "%B %e %Y"
+  in
+    tr []
+      [ td [] [ text <| date record.date ]
+      , td []
+        [ case record.desc of
+          Debt debt ->
+            text <|
+              debt.from ++ " has borrowed " ++ debt.amount ++ " " ++
+              record.asset ++ " from " ++ debt.to
+        ]
+      , td []
+        [ table []
+          [ tr [] <|
+            List.map
+              (\confirmed -> td [] [ text confirmed ])
+              record.confirmed
+          ]
+        ]
+      , td []
+        [ table []
+          <| List.map
+              (\txn -> tr [] [ td [] [ text txn ] ])
+              record.transactions
+        ]
+      , td []
+        [ if List.member userId record.confirmed
+          then text "no"
+          else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
         ]
       ]
-    , td []
-      [ table []
-        <| List.map
-            (\txn -> tr [] [ td [] [ text txn ] ])
-            record.transactions
-      ]
-    , td []
-      [ if List.member userId record.confirmed
-        then text "no"
-        else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
-      ]
-    ]
 
 assetRow : User.Balance -> Html Msg
 assetRow balance =
