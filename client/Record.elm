@@ -1,5 +1,6 @@
 module Record exposing
   ( Record, Desc(..), recordDecoder
+  , defaultRecord
   , DeclareDebt, setCreditor, setAsset, setAmount, declareDebtEncoder
   )
 
@@ -18,9 +19,13 @@ type alias Record =
   }
 
 
+defaultRecord : Record
+defaultRecord = Record 0 "" "" "" Blank [] []
+
+
 type Desc
   = Debt DebtDescription
-
+  | Blank
 
 type alias DebtDescription = { from : String, to : String, amount : String }
 

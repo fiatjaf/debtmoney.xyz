@@ -1,0 +1,23 @@
+@import 'node_modules/bulma/bulma.sass';
+@import 'node_modules/bulma-divider/divider.sass';
+@import 'node_modules/bulma-pageloader/pageloader.sass';
+@import 'node_modules/bulma-switch/switch.sass';
+@import 'node_modules/bulma-badge/badge.sass';
+
+body {}
+
+a {
+  cursor: pointer;
+  text-decoration: none;
+  color: #123abc;
+
+  &[href*="/user/"] { color: #2ba042; }
+  &[href*="/record/"] { color: #fb8e9a; }
+
+  &:hover { text-decoration: underline; }
+}
+
+.amount {
+  padding: 12px;
+  font-weight: bold;
+}

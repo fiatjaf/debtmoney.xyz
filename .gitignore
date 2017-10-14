@@ -10,3 +10,6 @@ elm-stuff
 elm.js
 .env
 Caddyfile
+*.map
+client/style.css
+.sass-cache

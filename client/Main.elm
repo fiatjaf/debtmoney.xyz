@@ -66,6 +66,7 @@ type alias Model =
   { me : User.User
   , route : Page
   , user : User.User
+  , record : Record.Record
   , declaringDebt : Record.DeclareDebt
   , error : String
   }
@@ -79,6 +80,7 @@ init flags location =
         User.defaultUser
         HomePage
         User.defaultUser
+        Record.defaultRecord
         (Record.DeclareDebt "" "" "0.00")
         ""
     (nextm, handlelocation) = update (Navigate location.pathname) m
@@ -93,6 +95,7 @@ type Msg
   | LoadMyself
   | GotMyself (Result Http.Error User.User)
   | GotUser (Result Http.Error User.User)
+  | GotRecord (Result Http.Error Record.Record)
   | TypeDebtCreditor String
   | TypeDebtAsset String
   | TypeDebtAmount String
@@ -111,9 +114,9 @@ update msg model =
           then (model, Cmd.none)
           else { model | route = route } !
             [ case route of
-              HomePage -> fetchUser "_me" |> Http.send GotMyself
-              RecordPage r -> Cmd.none
-              UserPage u -> fetchUser u |> Http.send GotUser
+              HomePage -> fetchUser "_me" GotMyself
+              RecordPage r -> fetchRecord r GotRecord
+              UserPage u -> fetchUser u GotUser
               NotFound -> Cmd.none
             , Navigation.newUrl pathname
             ]
@@ -122,7 +125,7 @@ update msg model =
           
     LoadMyself ->
       ( model
-      , fetchUser "_me" |> Http.send GotMyself
+      , fetchUser "_me" GotMyself
       )
     GotMyself result ->
       case result of
@@ -134,6 +137,12 @@ update msg model =
       case result of
         Ok user ->
           {model | user = user} ! []
+        Err err ->
+          {model | error = errorFormat err} ! []
+    GotRecord result ->
+      case result of
+        Ok record ->
+          {model | record = record} ! []
         Err err ->
           {model | error = errorFormat err} ! []
     TypeDebtCreditor x ->
@@ -174,14 +183,14 @@ view model =
       , if model.me.id == "" then div [] [] else div [ id "me" ]
         [ h1 []
           [ text "hello "
-          , melink model.me.id
+          , meLink model.me.id
           ]
         ]
       ]
     , div []
       [ case model.route of
         HomePage -> userView True model.me
-        RecordPage r -> div [] []
+        RecordPage r -> recordView model.me model.record
         UserPage u -> userView (model.user.id == model.me.id) model.user
         NotFound -> div [] [ text "this page doesn't exists" ]
       ]
@@ -203,7 +212,6 @@ userView itsme user =
             [ th [] [ text "date" ]
             , th [] [ text "description" ]
             , th [] [ text "confirmed" ]
-            , th [] [ text "transactions" ]
             ]
           ]
         , tbody []
@@ -240,9 +248,6 @@ userView itsme user =
 recordRow : Bool -> String -> Record.Record -> Html Msg
 recordRow itsme userId record =
   let 
-    date = Date.fromString
-      >> Result.withDefault (Date.fromTime 0)
-      >> Date.Format.format "%B %e %Y"
     confirm =
       if itsme
         then if List.member userId record.confirmed
@@ -251,34 +256,37 @@ recordRow itsme userId record =
       else text ""
   in
     tr []
-      [ td [] [ text <| date record.date ]
-      , td []
-        [ case record.desc of
-          Debt debt ->
-            span []
-              [ userlink debt.from
-              , text " has borrowed "
-              , amount record.asset debt.amount
-              , text " from "
-              , userlink debt.to
-              ]
-        ]
+      [ td [] [ link ("/record/" ++ (toString record.id)) (date record.date) ]
+      , td [] [ recordDescription record ]
       , td []
         [ table []
           [ tr []
             <| confirm ::
               List.map
-                (td [] << List.singleton << userlink)
+                (td [] << List.singleton << userLink)
                 record.confirmed
           ]
         ]
-      , td []
-        [ table []
-          <| List.map
-              (tr [] << List.singleton << td [] << List.singleton << text)
-              record.transactions
-        ]
       ]
+
+date : String -> String
+date
+  = Date.fromString
+  >> Result.withDefault (Date.fromTime 0)
+  >> Date.Format.format "%B %e %Y"
+
+recordDescription : Record.Record -> Html Msg
+recordDescription record =
+  case record.desc of
+    Blank -> span [] []
+    Debt debt ->
+      span []
+        [ userLink debt.from
+        , text " has borrowed "
+        , amount record.asset debt.amount
+        , text " from "
+        , userLink debt.to
+        ]
 
 assetRow : User.Balance -> Html Msg
 assetRow balance =
@@ -288,27 +296,34 @@ assetRow balance =
     , td [] [ text balance.limit ]
     ]
 
-userlink : String -> Html Msg
-userlink userId =
-  a
-    [ class "userlink"
-    , onWithOptions
-      "click"
-      { stopPropagation = True, preventDefault = True }
-      (JD.succeed <| Navigate (prefix ++ "/user/" ++ userId))
-    , href <| prefix ++ "/user/" ++ userId
-    ] [ text userId ]
+recordView : User.User -> Record.Record -> Html Msg
+recordView me record =
+  div [ id "record" ]
+    [ h1 [] [ text <| toString record.id ]
+    , div [ id "date" ] [ text <| date record.date ]
+    , div [ id "description" ] [ recordDescription record ]
+    , div [ id "transactions" ]
+      [ table []
+        <| List.map
+            (tr [] << List.singleton << td [] << List.singleton << text)
+            record.transactions
+      ]
+    ]
 
-melink : String -> Html Msg
-melink userId =
+link : String -> String -> Html Msg
+link url display =
   a
-    [ class "userlink me"
-    , onWithOptions
-      "click"
+    [ onWithOptions "click"
       { stopPropagation = True, preventDefault = True }
-      (JD.succeed <| Navigate (prefix ++ "/"))
-    , href <| prefix ++ "/"
-    ] [ text userId ]
+      (JD.succeed <| Navigate (prefix ++ url))
+    , href <| prefix ++ url
+    ] [ text display ]
+
+userLink : String -> Html Msg
+userLink userId = link ("/user/" ++ userId) userId
+
+meLink : String -> Html Msg
+meLink = link "/"
 
 amount : String -> String -> Html Msg
 amount asset amt =
@@ -318,9 +333,15 @@ amount asset amt =
 -- HTTP
 
 
-fetchUser : String -> Http.Request User.User
-fetchUser id =
-  Http.get ("/_/user/" ++ id) User.userDecoder
+fetchUser : String -> (Result Http.Error User.User -> Msg) -> Cmd Msg
+fetchUser id msg =
+  Http.send msg <|
+    Http.get ("/_/user/" ++ id) User.userDecoder
+
+fetchRecord : Int -> (Result Http.Error Record.Record -> Msg) -> Cmd Msg
+fetchRecord id msg =
+  Http.send msg <|
+    Http.get ("/_/record/" ++ (toString id)) Record.recordDecoder
 
 submitDebt : Model -> Http.Request ServerResponse
 submitDebt model =

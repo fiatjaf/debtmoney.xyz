@@ -1,0 +1,14 @@
+{
+  "name": "debtmoney-client",
+  "scripts": {
+    "watch-scss": "scss --sourcemap=none --watch style.scss:bundle.css",
+    "watch-elm": "ls *.elm | entr fish -c 'elm make Main.elm --output elm.js'"
+  },
+  "dependencies": {
+    "bulma": "^0.6.0",
+    "bulma-badge": "0.0.3",
+    "bulma-divider": "0.0.1",
+    "bulma-pageloader": "0.0.2",
+    "bulma-switch": "0.0.4"
+  }
+}
