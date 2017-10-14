@@ -81,8 +81,8 @@ func handleGetUser(w http.ResponseWriter, r *http.Request) {
 	user.Records = []BaseRecord{}
 	err = pg.Select(&user.Records, `
 SELECT * FROM records
-WHERE description->>'to' = $1
-   OR description->>'from' = $1
+ WHERE description->>'to' = $1
+    OR description->>'from' = $1
 ORDER BY id
         `,
 		user.Id)
@@ -92,6 +92,22 @@ ORDER BY id
 	}
 
 	jsonify(w, user, err)
+}
+
+func handleGetRecord(w http.ResponseWriter, r *http.Request) {
+	recordId, _ := strconv.Atoi(mux.Vars(r)["id"])
+
+	var record BaseRecord
+	err = pg.Get(&record, `
+SELECT * FROM records
+ WHERE id = $1
+LIMIT 1
+        `, recordId)
+	if err != nil {
+		log.Error().Int("record", recordId).Err(err).Msg("on get record")
+	}
+
+	jsonify(w, record, err)
 }
 
 func handleCreateDebt(w http.ResponseWriter, r *http.Request) {

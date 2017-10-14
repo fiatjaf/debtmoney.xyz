@@ -65,7 +65,8 @@ func main() {
 
 	api := router.PathPrefix("/_").Subrouter()
 	api.Path("/user/{id}").Methods("GET").HandlerFunc(handleGetUser)
-	api.Path("/debt").Methods("POST").HandlerFunc(handleCreateDebt)
+	api.Path("/record/debt").Methods("POST").HandlerFunc(handleCreateDebt)
+	api.Path("/record/{id}").Methods("GET").HandlerFunc(handleGetRecord)
 	api.Path("/record/{id}/confirm").Methods("POST").HandlerFunc(handleConfirm)
 
 	router.PathPrefix("/app/").Methods("GET").HandlerFunc(

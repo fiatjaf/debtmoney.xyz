@@ -153,13 +153,13 @@ update msg model =
       {model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
     SubmitDebtDeclaration ->
       ( model
-      , submitDebt model |> Http.send GotDebtDeclarationResponse
+      , submitDebt model GotDebtDeclarationResponse
       )
     GotDebtDeclarationResponse result ->
       update LoadMyself model
     ConfirmRecord recordId ->
       ( model
-      , submitConfirmation recordId |> Http.send GotRecordConfirmationResponse
+      , submitConfirmation recordId GotRecordConfirmationResponse
       )
     GotRecordConfirmationResponse result ->
       update LoadMyself model
@@ -334,28 +334,30 @@ amount asset amt =
 
 
 fetchUser : String -> (Result Http.Error User.User -> Msg) -> Cmd Msg
-fetchUser id msg =
-  Http.send msg <|
+fetchUser id hmsg =
+  Http.send hmsg <|
     Http.get ("/_/user/" ++ id) User.userDecoder
 
 fetchRecord : Int -> (Result Http.Error Record.Record -> Msg) -> Cmd Msg
-fetchRecord id msg =
-  Http.send msg <|
+fetchRecord id hmsg =
+  Http.send hmsg <|
     Http.get ("/_/record/" ++ (toString id)) Record.recordDecoder
 
-submitDebt : Model -> Http.Request ServerResponse
-submitDebt model =
+submitDebt : Model -> (Result Http.Error ServerResponse -> Msg) -> Cmd Msg
+submitDebt model hmsg =
   let
     body = Http.jsonBody <| Record.declareDebtEncoder model.declaringDebt
   in
-    Http.post "/_/debt" body serverResponseDecoder
+    Http.send hmsg <|
+      Http.post "/_/record/debt" body serverResponseDecoder
 
-submitConfirmation : Int -> Http.Request ServerResponse
-submitConfirmation recordId =
-  Http.post
-    ("/_/record/" ++ (toString recordId) ++ "/confirm")
-    Http.emptyBody
-    serverResponseDecoder
+submitConfirmation : Int -> (Result Http.Error ServerResponse -> Msg) -> Cmd Msg
+submitConfirmation recordId hmsg =
+  Http.send hmsg <|
+    Http.post
+      ("/_/record/" ++ (toString recordId) ++ "/confirm")
+      Http.emptyBody
+      serverResponseDecoder
 
 errorFormat : Http.Error -> String
 errorFormat err =
