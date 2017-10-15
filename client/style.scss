@@ -21,3 +21,11 @@ a {
   padding: 12px;
   font-weight: bold;
 }
+
+#error {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 400px;
+  max-width: 60%;
+}

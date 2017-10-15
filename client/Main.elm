@@ -11,6 +11,8 @@ import Navigation exposing (Location)
 import Route exposing ((:=), static, (</>))
 import Task exposing (Task)
 import Http
+import Time exposing (Time)
+import Process
 import Json.Decode as JD
 import Json.Encode as JE
 import Result
@@ -91,14 +93,15 @@ init flags location =
 -- UPDATE
 
 type Msg
-  = Navigate String
+  = EraseError
+  | Navigate String
   | LoadMyself
   | GotMyself (Result Http.Error User.User)
   | GotUser (Result Http.Error User.User)
   | GotRecord (Result Http.Error Record.Record)
-  | TypeDebtCreditor String
-  | TypeDebtAsset String
-  | TypeDebtAmount String
+  | ChangeDebtCreditor String
+  | ChangeDebtAsset String
+  | ChangeDebtAmount String
   | SubmitDebtDeclaration
   | GotDebtDeclarationResponse (Result Http.Error ServerResponse)
   | ConfirmRecord Int
@@ -107,6 +110,10 @@ type Msg
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    EraseError ->
+      ( {model | error = ""}
+      , Cmd.none
+      )
     Navigate pathname ->
       let
         route = match pathname
@@ -129,40 +136,53 @@ update msg model =
       )
     GotMyself result ->
       case result of
-        Ok user ->
-          {model | me = user} ! []
+        Ok user -> {model | me = user} ! []
         Err err ->
-          {model | error = errorFormat err} ! []
+          ( {model | error = errorFormat err}
+          , delay (Time.second * 4) EraseError
+          )
     GotUser result ->
       case result of
-        Ok user ->
-          {model | user = user} ! []
+        Ok user -> {model | user = user} ! []
         Err err ->
-          {model | error = errorFormat err} ! []
+          ( {model | error = errorFormat err}
+          , delay (Time.second * 4) EraseError
+          )
     GotRecord result ->
       case result of
-        Ok record ->
-          {model | record = record} ! []
+        Ok record -> {model | record = record} ! []
         Err err ->
-          {model | error = errorFormat err} ! []
-    TypeDebtCreditor x ->
+          ( {model | error = errorFormat err}
+          , delay (Time.second * 4) EraseError
+          )
+    ChangeDebtCreditor x ->
       {model | declaringDebt = model.declaringDebt |> Record.setCreditor x } ! []
-    TypeDebtAsset x ->
+    ChangeDebtAsset x ->
       {model | declaringDebt = model.declaringDebt |> Record.setAsset x } ! []
-    TypeDebtAmount x ->
+    ChangeDebtAmount x ->
       {model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
     SubmitDebtDeclaration ->
       ( model
       , submitDebt model GotDebtDeclarationResponse
       )
     GotDebtDeclarationResponse result ->
-      update LoadMyself model
+      case result of
+        Ok record -> update LoadMyself model
+        Err err ->
+          ( {model | error = errorFormat err}
+          , delay (Time.second * 4) EraseError
+          )
     ConfirmRecord recordId ->
       ( model
       , submitConfirmation recordId GotRecordConfirmationResponse
       )
     GotRecordConfirmationResponse result ->
-      update LoadMyself model
+      case result of
+        Ok record -> update LoadMyself model
+        Err err ->
+          ( {model | error = errorFormat err}
+          , delay (Time.second * 4) EraseError
+          )
 
 
 -- SUBSCRIPTIONS
@@ -177,9 +197,9 @@ view : Model -> Html Msg
 view model =
   div []
     [ header []
-      [ if model.error == "" then div [] [] else  div [ id "notification" ]
-        [ text <| "error: " ++ model.error
-        ]
+      [ if model.error == ""
+        then div [] []
+        else div [ id "error", class "notification is-danger" ] [ text <| model.error ]
       , if model.me.id == "" then div [] [] else div [ id "me" ]
         [ h1 []
           [ text "hello "
@@ -238,9 +258,9 @@ userView itsme user =
       ]
     , div []
       [ h2 [] [ text "declare a debt" ]
-      , input [ type_ "text", onInput TypeDebtCreditor ] []
-      , input [ type_ "text", onInput TypeDebtAsset ] []
-      , input [ type_ "number", step "0.01", onInput TypeDebtAmount ] []
+      , input [ type_ "text", onInput ChangeDebtCreditor ] []
+      , input [ type_ "text", onInput ChangeDebtAsset ] []
+      , input [ type_ "number", step "0.01", onInput ChangeDebtAmount ] []
       , button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
       ]
     ]
@@ -375,3 +395,12 @@ type alias ServerResponse =
 
 serverResponseDecoder : JD.Decoder ServerResponse
 serverResponseDecoder = JD.map ServerResponse <| JD.field "ok" JD.bool
+
+
+-- HELPERS
+
+delay : Time -> msg -> Cmd msg
+delay time msg =
+  Process.sleep time
+    |> Task.andThen (always <| Task.succeed msg)
+    |> Task.perform identity
