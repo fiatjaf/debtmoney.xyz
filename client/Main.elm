@@ -71,6 +71,7 @@ type alias Model =
   , record : Record.Record
   , declaringDebt : Record.DeclareDebt
   , error : String
+  , loading : String
   }
 
 
@@ -84,6 +85,7 @@ init flags location =
         User.defaultUser
         Record.defaultRecord
         (Record.DeclareDebt "" "" "0.00")
+        ""
         ""
     (nextm, handlelocation) = update (Navigate location.pathname) m
   in
@@ -111,65 +113,70 @@ update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     EraseError ->
-      ( {model | error = ""}
+      ( { model | error = "" }
       , Cmd.none
       )
     Navigate pathname ->
       let
         route = match pathname
-        res = if route == model.route
-          then (model, Cmd.none)
-          else { model | route = route } !
-            [ case route of
-              HomePage -> fetchUser "_me" GotMyself
-              RecordPage r -> fetchRecord r GotRecord
-              UserPage u -> fetchUser u GotUser
-              NotFound -> Cmd.none
-            , Navigation.newUrl pathname
-            ]
+        m = { model | route = route }
+        (nextm, effect) = case route of
+          HomePage -> update LoadMyself m
+          RecordPage r ->
+            ( { m | loading = "Loading record..." }
+            , fetchRecord r GotRecord
+            )
+          UserPage u ->
+            ( { m | loading = "Loading " ++ u ++ "'s profile..." }
+            , fetchUser u GotUser
+            )
+          NotFound -> ( m, Cmd.none)
+        updateurl = if route == model.route
+          then Cmd.none
+          else Navigation.newUrl pathname
       in
-        res
+        nextm ! [ effect, updateurl ]
           
     LoadMyself ->
-      ( model
+      ( { model | loading = "Loading your profile..." }
       , fetchUser "_me" GotMyself
       )
     GotMyself result ->
       case result of
-        Ok user -> {model | me = user} ! []
+        Ok user -> { model | me = user, loading = "" } ! []
         Err err ->
-          ( {model | error = errorFormat err}
+          ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
     GotUser result ->
       case result of
-        Ok user -> {model | user = user} ! []
+        Ok user -> { model | user = user, loading = "" } ! []
         Err err ->
-          ( {model | error = errorFormat err}
+          ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
     GotRecord result ->
       case result of
-        Ok record -> {model | record = record} ! []
+        Ok record -> { model | record = record, loading = "" } ! []
         Err err ->
-          ( {model | error = errorFormat err}
+          ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
     ChangeDebtCreditor x ->
-      {model | declaringDebt = model.declaringDebt |> Record.setCreditor x } ! []
+      { model | declaringDebt = model.declaringDebt |> Record.setCreditor x } ! []
     ChangeDebtAsset x ->
-      {model | declaringDebt = model.declaringDebt |> Record.setAsset x } ! []
+      { model | declaringDebt = model.declaringDebt |> Record.setAsset x } ! []
     ChangeDebtAmount x ->
-      {model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
+      { model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
     SubmitDebtDeclaration ->
-      ( model
+      ( { model | loading = "Submitting debt declaration..." }
       , submitDebt model GotDebtDeclarationResponse
       )
     GotDebtDeclarationResponse result ->
       case result of
-        Ok record -> update LoadMyself model
+        Ok record -> update LoadMyself { model | loading = "" }
         Err err ->
-          ( {model | error = errorFormat err}
+          ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
     ConfirmRecord recordId ->
@@ -178,9 +185,9 @@ update msg model =
       )
     GotRecordConfirmationResponse result ->
       case result of
-        Ok record -> update LoadMyself model
+        Ok record -> update LoadMyself { model | loading = "" }
         Err err ->
-          ( {model | error = errorFormat err}
+          ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
 
@@ -200,10 +207,16 @@ view model =
       [ if model.error == ""
         then div [] []
         else div [ id "error", class "notification is-danger" ] [ text <| model.error ]
+      , if model.loading == ""
+        then div [] []
+        else div [ id "loading", class "pageloader" ]
+          [ div [ class "spinner" ] []
+          , div [ class "title" ] [ text <| model.loading ]
+          ]
       , if model.me.id == "" then div [] [] else div [ id "me" ]
         [ h1 []
           [ text "hello "
-          , meLink model.me.id
+          , link "/" model.me.id
           ]
         ]
       ]
@@ -341,9 +354,6 @@ link url display =
 
 userLink : String -> Html Msg
 userLink userId = link ("/user/" ++ userId) userId
-
-meLink : String -> Html Msg
-meLink = link "/"
 
 amount : String -> String -> Html Msg
 amount asset amt =

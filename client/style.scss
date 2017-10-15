@@ -1,6 +1,7 @@
+$primary: #BD3636;
+
 @import 'node_modules/bulma/bulma.sass';
 @import 'node_modules/bulma-divider/divider.sass';
-@import 'node_modules/bulma-pageloader/pageloader.sass';
 @import 'node_modules/bulma-switch/switch.sass';
 @import 'node_modules/bulma-badge/badge.sass';
 
@@ -9,7 +10,6 @@ body {}
 a {
   cursor: pointer;
   text-decoration: none;
-  color: #123abc;
 
   &[href*="/user/"] { color: #2ba042; }
   &[href*="/record/"] { color: #fb8e9a; }
@@ -28,4 +28,54 @@ a {
   right: 10px;
   width: 400px;
   max-width: 60%;
+}
+
+.pageloader {
+  position: fixed;
+  background: $primary;
+  z-index: 9999;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  .title {
+    color: white;
+    position: absolute;
+    top: 46%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 2em 0 0 0;
+  }
+
+  .spinner {
+    width: 80px;
+    height: 80px;
+    position: absolute;
+    top: calc(34% - 40px);
+    left: calc(50% - 40px);
+    background-color: white;
+    margin: 4em auto;
+    -webkit-animation: sk-rotateplane 1.5s infinite ease-in-out;
+    animation: sk-rotateplane 1.5s infinite ease-in-out;
+  }
+}
+
+@-webkit-keyframes sk-rotateplane {
+  0% { -webkit-transform: perspective(120px) }
+  50% { -webkit-transform: perspective(120px) rotateY(180deg) }
+  100% { -webkit-transform: perspective(120px) rotateY(180deg)  rotateX(180deg) }
+}
+
+@keyframes sk-rotateplane {
+  0% {
+    transform: perspective(120px) rotateX(0deg) rotateY(0deg);
+    -webkit-transform: perspective(120px) rotateX(0deg) rotateY(0deg)
+  } 50% {
+    transform: perspective(120px) rotateX(-180.1deg) rotateY(0deg);
+    -webkit-transform: perspective(120px) rotateX(-180.1deg) rotateY(0deg)
+  } 100% {
+    transform: perspective(120px) rotateX(-180deg) rotateY(-179.9deg);
+    -webkit-transform: perspective(120px) rotateX(-180deg) rotateY(-179.9deg);
+  }
 }
