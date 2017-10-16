@@ -8,7 +8,6 @@ import Html exposing
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
 import Navigation exposing (Location)
-import Route exposing ((:=), static, (</>))
 import Task exposing (Task)
 import Http
 import Time exposing (Time)
@@ -19,6 +18,7 @@ import Result
 import Date
 import Date.Format
 
+import Page exposing (..)
 import User
 import Record exposing (Desc(..))
 
@@ -26,41 +26,14 @@ import Record exposing (Desc(..))
 type alias Flags = {}
 
 
-prefix = "/app"
-
 main =
   Navigation.programWithFlags
-    parseRoute
+    (.pathname >> Navigate)
     { init = init
     , view = view
     , update = update
     , subscriptions = subscriptions
     }
-
-
--- ROUTES
-type Page
-  = HomePage
-  | RecordPage Int
-  | UserPage String
-  | NotFound
-
-homePage = HomePage := static ""
-recordPage = RecordPage := static "record" </> Route.int
-userPage = UserPage := static "user" </> Route.string
-
-routes = Route.router [homePage, recordPage, userPage]
-
-match : String -> Page
-match
-  = String.dropLeft (String.length prefix)
-  >> Debug.log "navigated to location"
-  >> Route.match routes
-  >> Debug.log "matched route"
-  >> Maybe.withDefault NotFound
-
-parseRoute : Location -> Msg
-parseRoute = (.pathname) >> Navigate
 
 
 -- MODEL
@@ -93,7 +66,6 @@ init flags location =
 
 
 -- UPDATE
-
 type Msg
   = EraseError
   | Navigate String
@@ -199,7 +171,6 @@ subscriptions model =
 
 
 -- VIEW
-
 view : Model -> Html Msg
 view model =
   div []
@@ -239,7 +210,7 @@ userView itsme user =
       ]
     , div []
       [ h2 [] [ text "operations:" ]
-      , table []
+      , table [ class "table is-hoverable is-fullwidth" ]
         [ thead []
           [ tr []
             [ th [] [ text "date" ]
@@ -257,7 +228,7 @@ userView itsme user =
       ]
     , div []
       [ h2 [] [ text "balances:" ]
-      , table []
+      , table [ class "table is-striped is-fullwidth" ]
         [ thead []
           [ tr []
             [ th [] [ text "asset" ]
@@ -361,8 +332,6 @@ amount asset amt =
 
 
 -- HTTP
-
-
 fetchUser : String -> (Result Http.Error User.User -> Msg) -> Cmd Msg
 fetchUser id hmsg =
   Http.send hmsg <|
@@ -408,7 +377,6 @@ serverResponseDecoder = JD.map ServerResponse <| JD.field "ok" JD.bool
 
 
 -- HELPERS
-
 delay : Time -> msg -> Cmd msg
 delay time msg =
   Process.sleep time

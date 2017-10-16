@@ -131,7 +131,6 @@ func handleCreateDebt(w http.ResponseWriter, r *http.Request) {
 		jsonify(w, nil, err)
 		return
 	}
-	args.Creditor = strings.ToLower(args.Creditor)
 
 	log.Info().
 		Str("from", me.Id).
@@ -146,13 +145,23 @@ func handleCreateDebt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	debt, err := me.createDebt(me.Id, args.Creditor, args.Asset, args.Amount)
+	var creditor string
+	if look.Id != "" {
+		// if the user has a known id, use it
+		creditor = look.Id
+	} else {
+		// otherwise use the account with provider
+		creditor = strings.ToLower(args.Creditor)
+	}
+
+	debt, err := me.createDebt(me.Id, creditor, args.Asset, args.Amount)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create debt")
 		jsonify(w, nil, err)
 		return
 	}
 
-	log.Info().Int("id", debt.Id).Msg("debt created, should we confirm?")
+	log.Debug().Int("id", debt.Id).Msg("debt created, should we confirm?")
 
 	// will confirm automatically for the creditor if he is a registered user
 	if look.Id != "" {

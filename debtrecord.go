@@ -110,5 +110,16 @@ UPDATE records
 			Msg("failed to append transaction to record")
 	}
 
+	// create offer so the creditor may get rid of these IOUs he's holding
+	err = d.To.offer(d.From, d.Asset, d.To, d.Asset, "1", d.Debt.Amount)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("offerer", d.To.Id).
+			Str("asset-from", d.From.Id).
+			Str("asset", d.Asset).
+			Msg("failed to create post-debt offer")
+	}
+
 	return nil
 }

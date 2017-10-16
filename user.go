@@ -39,6 +39,7 @@ SELECT * FROM users
  WHERE id = $1
     `, id)
 	if err != nil && err.Error() != "sql: no rows in result set" {
+		log.Error().Err(err).Msg("failed to find user")
 		return
 	}
 
@@ -61,6 +62,7 @@ SELECT * FROM users
 	log.Info().Str("id", id).Msg("creating account")
 	pair, err := keypair.Random()
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create keypair")
 		return
 	}
 
@@ -69,6 +71,7 @@ INSERT INTO users (id, address, seed)
 VALUES ($1, $2, $3)
     `, id, pair.Address(), pair.Seed())
 	if err != nil {
+		log.Error().Err(err).Str("id", id).Msg("failed to create account on db")
 		return
 	}
 
@@ -141,15 +144,20 @@ func (user User) fundMore(amount int) error {
 	return nil
 }
 
-func (rec User) trust(iss User, asset string, newAmount string) error {
-	newAmountd, err := decimal.NewFromString(newAmount)
+// create a new a trustline or add to an existing trustline so it fits `add`
+func (rec User) trust(iss User, asset string, add string) error {
+	add_, err := decimal.NewFromString(add)
 	if err != nil {
 		return err
 	}
 
 	zero := decimal.Decimal{}
+	if add_.Equals(zero) {
+		return nil
+	}
+
 	fund := true
-	need := newAmountd
+	newTrust := add_
 
 	for _, balance := range rec.ha.Balances {
 		if balance.Asset.Issuer == iss.Address && balance.Asset.Code == asset {
@@ -163,24 +171,21 @@ func (rec User) trust(iss User, asset string, newAmount string) error {
 				return errors.New("wrong balance values received from horizon")
 			}
 			free := limit.Sub(balance)
-			if free.GreaterThan(newAmountd) {
-				need = zero
+			if free.GreaterThan(add_) {
+				// nothing to change
+				return nil
 			} else {
-				need = newAmountd.Add(limit).Sub(free)
+				newTrust = add_.Add(limit).Sub(free)
 			}
 		}
 	}
 
-	log.Debug().
+	log.Info().
 		Str("truster", rec.Id).
 		Str("trustee", iss.Id).
-		Str("need", need.String()).
+		Str("newTrust", newTrust.String()).
 		Bool("fund", fund).
 		Msg("adjusting trustline")
-
-	if need.Equals(zero) {
-		return nil
-	}
 
 	if fund {
 		err := rec.fundMore(10)
@@ -194,13 +199,121 @@ func (rec User) trust(iss User, asset string, newAmount string) error {
 		n,
 		b.SourceAccount{rec.Address},
 		b.AutoSequence{h},
-		b.Trust(asset, iss.Address, b.Limit(need.StringFixed(2))),
+		b.Trust(asset, iss.Address, b.Limit(newTrust.StringFixed(2))),
 	)
 	if tx.Err != nil {
 		return tx.Err
 	}
 
 	txe := tx.Sign(rec.Seed)
+	blob, err := txe.Base64()
+	if err != nil {
+		return err
+	}
+
+	_, err = h.SubmitTransaction(blob)
+	if err != nil {
+		if herr, ok := err.(*horizon.Error); ok {
+			c, _ := herr.ResultCodes()
+			pretty.Log(c)
+		}
+		return err
+	}
+	return nil
+}
+
+// create a new offer or add `add` to an existing offer
+func (user User) offer(
+	offerIss User, offerAsset string,
+	requestIss User, requestAsset string,
+	price, add string,
+) error {
+	add_, err := decimal.NewFromString(add)
+	if err != nil {
+		return err
+	}
+
+	zero := decimal.Decimal{}
+	fund := true
+	newOfferAmount := add_
+
+	// load existing offers
+	resp, err := h.LoadAccountOffers(user.Address)
+	if err != nil {
+		if herr, ok := err.(*horizon.Error); ok {
+			c, _ := herr.ResultCodes()
+			pretty.Log(c)
+		}
+		return err
+	}
+
+	for _, offer := range resp.Embedded.Records {
+		if offer.Selling.Issuer == offerIss.Address &&
+			offer.Selling.Code == offerAsset &&
+			offer.Buying.Issuer == requestIss.Address &&
+			offer.Buying.Code == requestAsset {
+			// there is already an offer with these terms,
+			fund = false
+
+			// let's only change the amount and/or price
+			if add_.Equals(zero) && offer.Price == price {
+				// nothing to change
+				return nil
+			}
+
+			newOfferAmount, err = decimal.NewFromString(offer.Amount)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	log.Info().
+		Str("user", user.Id).
+		Str("offering", offerAsset+"#"+offerIss.Id).
+		Str("requesting", requestAsset+"#"+requestIss.Id).
+		Str("newOfferAmount", newOfferAmount.String()).
+		Bool("fund", fund).
+		Msg("adjusting offer")
+
+	if newOfferAmount.Equals(zero) {
+		return nil
+	}
+
+	if fund {
+		err := user.fundMore(10)
+		if err != nil {
+			return err
+		}
+	}
+
+	// change or create the trustline
+	tx := b.Transaction(
+		n,
+		b.SourceAccount{user.Address},
+		b.AutoSequence{h},
+		b.CreateOffer(
+			b.Rate{
+				Selling: b.Asset{
+					Code:   offerAsset,
+					Issuer: offerIss.Address,
+					Native: false,
+				},
+				Buying: b.Asset{
+					Code:   requestAsset,
+					Issuer: requestIss.Address,
+					Native: false,
+				},
+				Price: b.Price(price),
+			},
+			b.Amount(newOfferAmount.StringFixed(2)),
+		),
+	)
+	if tx.Err != nil {
+		return tx.Err
+	}
+
+	txe := tx.Sign(user.Seed)
 	blob, err := txe.Base64()
 	if err != nil {
 		return err

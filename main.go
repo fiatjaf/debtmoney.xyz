@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kr/pretty"
 	_ "github.com/lib/pq"
 
 	"github.com/fiatjaf/uud-go"
@@ -72,7 +71,6 @@ func main() {
 	router.PathPrefix("/app/").Methods("GET").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			if len(strings.Split(r.URL.Path, ".")) == 1 {
-				pretty.Log(r.URL)
 				http.ServeFile(w, r, "./client/index.html")
 				return
 			}
