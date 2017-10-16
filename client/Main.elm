@@ -3,7 +3,7 @@ import Html exposing
   , h1, h2, div, textarea, button, p, a
   , table, tbody, thead, tr, th, td
   , input, select, option, header, nav
-  , span
+  , span, section
   )
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
@@ -85,7 +85,7 @@ update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     EraseError ->
-      ( { model | error = "" }
+      ( { model | error = "", loading = "" }
       , Cmd.none
       )
     Navigate pathname ->
@@ -175,15 +175,14 @@ view : Model -> Html Msg
 view model =
   div []
     [ header []
-      [ if model.error == ""
-        then div [] []
-        else div [ id "error", class "notification is-danger" ] [ text <| model.error ]
-      , if model.loading == ""
-        then div [] []
-        else div [ id "loading", class "pageloader" ]
+      [ if model.error /= ""
+        then div [ id "error", class "notification is-danger" ] [ text <| model.error ]
+        else if model.loading /= ""
+        then div [ id "loading", class "pageloader" ]
           [ div [ class "spinner" ] []
           , div [ class "title" ] [ text <| model.loading ]
           ]
+        else div [] []
       , if model.me.id == "" then div [] [] else div [ id "me" ]
         [ h1 []
           [ text "hello "
@@ -191,7 +190,7 @@ view model =
           ]
         ]
       ]
-    , div []
+    , section [ class "section" ]
       [ case model.route of
         HomePage -> userView True model.me
         RecordPage r -> recordView model.me model.record

@@ -40,6 +40,10 @@ func jsonify(w http.ResponseWriter, value interface{}, err error) {
 	w.Write(v)
 }
 
+type ServerResponse struct {
+	Ok bool `json:"ok"`
+}
+
 func handleGetUser(w http.ResponseWriter, r *http.Request) {
 	userId := mux.Vars(r)["id"]
 	if userId == "_me" {
@@ -168,11 +172,17 @@ func handleCreateDebt(w http.ResponseWriter, r *http.Request) {
 		var registered bool
 		err = pg.Get(&registered, "SELECT true FROM users WHERE id = $1", look.Id)
 		if err == nil && registered {
-			err = confirmRecord(debt.Id, look.Id)
+			r, _ := confirmRecord(debt.Id, look.Id) // ignore errors here by now
+			err = maybePublish(r)
+
+			if err != nil {
+				jsonify(w, nil, err)
+				return
+			}
 		}
 	}
 
-	jsonify(w, nil, err)
+	jsonify(w, ServerResponse{true}, nil)
 	return
 }
 
@@ -184,8 +194,14 @@ func handleConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recordId, _ := strconv.Atoi(mux.Vars(r)["id"])
-	err := confirmRecord(recordId, userId)
+	record, err := confirmRecord(recordId, userId)
+	if err != nil {
+		jsonify(w, nil, err)
+		return
+	}
 
-	jsonify(w, nil, err)
+	err = maybePublish(record)
+
+	jsonify(w, ServerResponse{true}, nil)
 	return
 }

@@ -41,7 +41,7 @@ func instantiateDebtRecord(r BaseRecord) (d DebtRecord, err error) {
 	return
 }
 
-func (d DebtRecord) confirmed() error {
+func (d DebtRecord) shouldPublish() bool {
 	var fromConfirmed bool
 	var toConfirmed bool
 	for _, uconfirmed := range d.Confirmed {
@@ -53,47 +53,52 @@ func (d DebtRecord) confirmed() error {
 		}
 	}
 	if fromConfirmed && toConfirmed {
-		log.Info().Msg("all confirmed, let's publish")
-		return d.publish()
+		return true
 	}
 
-	return nil
+	return false
 }
 
 func (d DebtRecord) publish() error {
 	log.Info().Int("record", d.Id).Msg("publishing")
 
-	err = d.To.trust(d.From, d.Asset, d.Debt.Amount)
+	fundtotal := 0 // all the funds go to the receiver of the IOU
+
+	fund, trustness, err := d.To.trust(d.From, d.Asset, d.Debt.Amount)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to adjust trustline")
+		log.Error().Err(err).Msg("failed to create trustline mutator")
 		return err
+	}
+	if fund {
+		fundtotal += 10
+	}
+
+	paymentness := b.Payment(
+		b.SourceAccount{d.From.Address},
+		b.Destination{d.To.Address},
+		b.CreditAmount{d.Asset, d.From.Address, d.Debt.Amount},
+	)
+
+	fund, offerness, err := d.To.offer(
+		d.From, d.Asset, d.To, d.Asset, "1", d.Debt.Amount)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create offer mutator")
+		return err
+	}
+	if fund {
+		fundtotal += 10
 	}
 
 	log.Info().Msg("publishing a single transaction")
-	tx := b.Transaction(
-		n,
-		b.SourceAccount{d.From.Address},
-		b.AutoSequence{h},
-		b.Payment(
-			b.Destination{d.To.Address},
-			b.CreditAmount{d.Asset, d.From.Address, d.Debt.Amount},
-		),
+	tx := createStellarTransaction()
+	tx.Mutate(
+		d.To.fund(fundtotal),
+		trustness,
+		paymentness,
+		offerness,
 	)
-	if tx.Err != nil {
-		log.Error().Err(err).Msg("failed to build transaction")
-		return tx.Err
-	}
-
-	txe := tx.Sign(d.From.Seed)
-	blob, err := txe.Base64()
+	hash, err := commitStellarTransaction(tx, s.SourceSeed, d.To.Seed, d.From.Seed)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to sign transaction")
-		return err
-	}
-
-	success, err := h.SubmitTransaction(blob)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to build transaction")
 		return err
 	}
 
@@ -102,16 +107,15 @@ func (d DebtRecord) publish() error {
 UPDATE records
    SET transactions = array_append(transactions, $2)
  WHERE id = $1
-    `, d.Id, success.Hash)
+    `, d.Id, hash)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("hash", success.Hash).
+			Str("hash", hash).
 			Msg("failed to append transaction to record")
 	}
 
 	// create offer so the creditor may get rid of these IOUs he's holding
-	err = d.To.offer(d.From, d.Asset, d.To, d.Asset, "1", d.Debt.Amount)
 	if err != nil {
 		log.Error().
 			Err(err).
