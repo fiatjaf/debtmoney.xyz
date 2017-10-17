@@ -85,10 +85,13 @@ VALUES ($1, $2, $3)
 
 	if err == nil {
 		err = txn.Commit()
-		log.Error().
-			Err(err).
-			Str("tx", hash).
-			Msg("failed to commit user to postgres after stellar account creation")
+
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("tx", hash).
+				Msg("failed to commit user to postgres after stellar account creation")
+		}
 	}
 
 	return

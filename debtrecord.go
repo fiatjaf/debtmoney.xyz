@@ -62,11 +62,21 @@ func (d DebtRecord) shouldPublish() bool {
 func (d DebtRecord) publish() error {
 	log.Info().Int("record", d.Id).Msg("publishing")
 
+	// prepare the sql statement
+	sql, err := pg.Prepare(`
+UPDATE records
+   SET transactions = array_append(transactions, $2)
+ WHERE id = $1
+    `)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to prepare append-transaction sql")
+	}
+
 	fundtotal := 0 // all the funds go to the receiver of the IOU
 
 	fund, trustness, err := d.To.trust(d.From, d.Asset, d.Debt.Amount)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to create trustline mutator")
+		log.Warn().Err(err).Msg("failed to create trustline mutator")
 		return err
 	}
 	if fund {
@@ -82,7 +92,7 @@ func (d DebtRecord) publish() error {
 	fund, offerness, err := d.To.offer(
 		d.From, d.Asset, d.To, d.Asset, "1", d.Debt.Amount)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to create offer mutator")
+		log.Warn().Err(err).Msg("failed to create offer mutator")
 		return err
 	}
 	if fund {
@@ -102,28 +112,17 @@ func (d DebtRecord) publish() error {
 		return err
 	}
 
-	// published successfully, append to record
-	_, err = pg.Exec(`
-UPDATE records
-   SET transactions = array_append(transactions, $2)
- WHERE id = $1
-    `, d.Id, hash)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("hash", hash).
-			Msg("failed to append transaction to record")
+	// now commit the postgres transaction
+	if err == nil {
+		_, err = sql.Exec(d.Id, hash)
+
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("tx", hash).
+				Msg("failed to append hash to postgres after stellar transaction ")
+		}
 	}
 
-	// create offer so the creditor may get rid of these IOUs he's holding
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("offerer", d.To.Id).
-			Str("asset-from", d.From.Id).
-			Str("asset", d.Asset).
-			Msg("failed to create post-debt offer")
-	}
-
-	return nil
+	return err
 }
