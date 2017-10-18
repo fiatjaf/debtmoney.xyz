@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fiatjaf/uud-go"
+	"github.com/fiatjaf/accountd"
 	"github.com/gorilla/mux"
 )
 
@@ -148,7 +148,7 @@ func handleCreateDebt(w http.ResponseWriter, r *http.Request) {
 		Str("amount", args.Amount).
 		Msg("looking up creditor")
 
-	look, err := uud.LookupUser(args.Creditor)
+	look, err := accountd.LookupUser(args.Creditor)
 	if err != nil {
 		jsonify(w, nil, err)
 		return

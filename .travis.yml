@@ -1,0 +1,19 @@
+language: node_js
+node_js:
+- 7.7.3
+dist: trusty
+sudo: false
+cache:
+  directories:
+    - client/elm-stuff/build-artifacts
+deploy:
+  provider: heroku
+  api_key:
+    secure: hEdt2OjhzocBV4x0WzbN6ste4zCC6aY5lDxbRb2ebMlXtbQQWfqMAenyW4QsQSuaS9B+vAL5u7gyr3oJckcim+R3DzvDKki9DOR76hRHocOAMQpleD8oqAIirw1lzg/s4kVmAMpsjyoa487FW/qB2D4icZ6wFt6kQQ0MGxk9MHQNpNuXY6KQ4jrUn7Xv3AF3UpcOtSWxitzVSsJIKf6m8rt7MHm1Jbt7QuFE9Ii26+6d69bWfE09vN79PLB2Gfm9H4dGDb8d+386zJ5ZhKMaeb2TSDFluueio5RpEeCNnjHeeW0lKifYaRf7P2rerz/4Tqs2iGZjG4ihJReUwsbyM+SBo/bOUKoM67pDJbeS4eNFq59icRlOp5+XtGdHfKw5omz67dGPQvvugmE2+tJLuNFm88jJffsJFP3i/4lloLy/Lic01+yvN2MPi4qy4kCwc/NadOuMCNKAV1VXmHlLP6LEriJ2xEki1dpY/H3VaI6kuveyvYITO3qiEvZxI0LwIDuAOEw9B4z47ntdB4wNPU91tPYPh11Jm/Xc7N1/zJIFSnDzC8f/ascUJipB/aHySxs/4ird0JMwi5vM5Uejgfh8FZSEqEdj3v2BzW/KUJtm4453LcASoNqQ1QChEL6U+Ho9/PLf2cTw5oU+jsxcd10HGSljxktBLstjfyWhmT4=
+  app: debtmoney
+  on:
+    repo: fiatjaf/debtmoney.xyz
+    branch: master
+  skip_cleanup: true
+before_deploy:
+- cd client && npm run build && cd .. && ls && ls client

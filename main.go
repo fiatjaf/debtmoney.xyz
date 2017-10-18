@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"github.com/fiatjaf/uud-go"
+	"github.com/fiatjaf/accountd"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
@@ -43,7 +43,7 @@ func main() {
 		log.Fatal().Err(err).Msg("couldn't process envconfig.")
 	}
 
-	uud.HOST = "https://cantillon.alhur.es:6336"
+	accountd.HOST = "https://cantillon.alhur.es:6336"
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
 	// cookie store
@@ -81,7 +81,7 @@ func main() {
 		func(w http.ResponseWriter, r *http.Request) {
 			code := r.URL.Query().Get("code")
 
-			user, err := uud.VerifyAuth(code)
+			user, err := accountd.VerifyAuth(code)
 
 			if err != nil {
 				log.Error().Err(err).Msg("invalid authorization")
