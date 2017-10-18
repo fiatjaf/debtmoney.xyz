@@ -62,17 +62,7 @@ func (d DebtRecord) shouldPublish() bool {
 func (d DebtRecord) publish() error {
 	log.Info().Int("record", d.Id).Msg("publishing")
 
-	// prepare the sql statement
-	sql, err := pg.Prepare(`
-UPDATE records
-   SET transactions = array_append(transactions, $2)
- WHERE id = $1
-    `)
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to prepare append-transaction sql")
-	}
-
-	fundtotal := 0 // all the funds go to the receiver of the IOU
+	fundtotal := 0 // extra balance reserve needed to the receiver of the IOU
 
 	fund, trustness, err := d.To.trust(d.From, d.Asset, d.Debt.Amount)
 	if err != nil {
@@ -101,12 +91,32 @@ UPDATE records
 
 	log.Info().Msg("publishing a single transaction")
 	tx := createStellarTransaction()
+
+	var issuerness b.TransactionMutator
+	var receiverness b.TransactionMutator
+
+	if d.From.ha.ID == "" {
+		// account doesn't exist on stellar
+		issuerness = d.From.fundInitial(20)
+	} else {
+		issuerness = b.Defaults{}
+	}
+
+	if d.To.ha.ID == "" {
+		// account doesn't exist on stellar
+		receiverness = d.To.fundInitial(fundtotal + 20)
+	} else {
+		receiverness = d.To.fund(fundtotal)
+	}
+
 	tx.Mutate(
-		d.To.fund(fundtotal),
+		issuerness,
+		receiverness,
 		trustness,
 		paymentness,
 		offerness,
 	)
+
 	hash, err := commitStellarTransaction(tx, s.SourceSeed, d.To.Seed, d.From.Seed)
 	if err != nil {
 		return err
@@ -114,7 +124,11 @@ UPDATE records
 
 	// now commit the postgres transaction
 	if err == nil {
-		_, err = sql.Exec(d.Id, hash)
+		_, err := pg.Exec(`
+UPDATE records
+   SET transactions = array_append(transactions, $2)
+ WHERE id = $1
+    `, d.Id, hash)
 
 		if err != nil {
 			log.Error().

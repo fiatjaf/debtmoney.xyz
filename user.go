@@ -43,10 +43,10 @@ SELECT * FROM users
 
 	// load account info from stellar
 	// runs no matter what
+	// ignore errors -- because the account may not be created on stellar yet
 	defer func() {
 		if err == nil {
-			var ha horizon.Account
-			ha, err = h.LoadAccount(user.Address)
+			ha, _ := h.LoadAccount(user.Address)
 			user.ha = ha
 		}
 	}()
@@ -73,35 +73,26 @@ VALUES ($1, $2, $3)
 		return
 	}
 
+	err = txn.Commit()
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to commit user to postgres")
+		return
+	}
+
 	user = User{
 		Id:      id,
 		Address: pair.Address(),
 		Seed:    pair.Seed(),
 	}
 
-	tx := createStellarTransaction()
-	tx.Mutate(user.fundInitial())
-	hash, err := commitStellarTransaction(tx, s.SourceSeed)
-
-	if err == nil {
-		err = txn.Commit()
-
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("tx", hash).
-				Msg("failed to commit user to postgres after stellar account creation")
-		}
-	}
-
 	return
 }
 
-func (user User) fundInitial() b.TransactionMutator {
+func (user User) fundInitial(amount int) b.TransactionMutator {
 	return b.CreateAccount(
 		b.SourceAccount{s.SourceAddress},
 		b.Destination{user.Address},
-		b.NativeAmount{"20"},
+		b.NativeAmount{strconv.Itoa(amount)},
 	)
 }
 

@@ -51,6 +51,11 @@ func handleGetUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := ensureUser(userId)
+	if err != nil {
+		log.Warn().Err(err).Str("id", userId).Msg("failed to load account")
+		jsonify(w, nil, err)
+		return
+	}
 
 	// user balances
 	user.Balances = make([]Balance, len(user.ha.Balances))
