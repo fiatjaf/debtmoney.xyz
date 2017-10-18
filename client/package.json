@@ -15,7 +15,6 @@
     "bulma-badge": "0.0.3",
     "bulma-divider": "0.0.1",
     "bulma-switch": "0.0.4",
-    "elm": "^0.18.0",
     "node-sass": "^4.5.3"
   }
 }
