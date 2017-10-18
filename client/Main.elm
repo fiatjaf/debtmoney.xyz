@@ -3,7 +3,7 @@ import Html exposing
   , h1, h2, div, textarea, button, p, a
   , table, tbody, thead, tr, th, td
   , input, select, option, header, nav
-  , span, section
+  , span, section, nav, img
   )
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
@@ -174,7 +174,19 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
   div []
-    [ header []
+    [ nav [ class "navbar" ]
+      [ div [ class "navbar-brand" ]
+        [ div [ class "navbar-item logo" ] [ text "debtmoney" ]
+        , div [ class "navbar-item" ]
+          [ div [ class "field" ]
+            [ if model.me.id == ""
+              then a [ href "/" ] [ text "login" ]
+              else link "/" model.me.id
+            ]
+          ]
+        ]
+      ]
+    , div []
       [ if model.error /= ""
         then div [ id "error", class "notification is-danger" ] [ text <| model.error ]
         else if model.loading /= ""
@@ -183,12 +195,6 @@ view model =
           , div [ class "title" ] [ text <| model.loading ]
           ]
         else div [] []
-      , if model.me.id == "" then div [] [] else div [ id "me" ]
-        [ h1 []
-          [ text "hello "
-          , link "/" model.me.id
-          ]
-        ]
       ]
     , section [ class "section" ]
       [ case model.route of
