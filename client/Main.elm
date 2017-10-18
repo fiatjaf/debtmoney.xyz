@@ -3,7 +3,7 @@ import Html exposing
   , h1, h2, div, textarea, button, p, a
   , table, tbody, thead, tr, th, td
   , input, select, option, header, nav
-  , span, section, nav, img
+  , span, section, nav, img, label
   )
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
@@ -245,14 +245,31 @@ userView itsme user =
           <| List.map assetRow user.balances
         ]
       ]
-    , div []
-      [ h2 [] [ text "declare a debt" ]
-      , input [ type_ "text", onInput ChangeDebtCreditor ] []
-      , input [ type_ "text", onInput ChangeDebtAsset ] []
-      , input [ type_ "number", step "0.01", onInput ChangeDebtAmount ] []
-      , button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
+    , if itsme then div [ id "declaringdebt" ]
+      [ h2 [] [ text "Declare a debt:" ]
+      , formField "Creditor:"
+        <| input [ type_ "text", placeholder "name@gmail.com", onInput ChangeDebtCreditor ] []
+      , formField "Currency:"
+        <| input [ type_ "text", placeholder "USD", onInput ChangeDebtAsset ] []
+      , formField "Amount"
+        <| input [ type_ "number", placeholder "37", step "0.01", onInput ChangeDebtAmount ] []
+      , formField ""
+        <| button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
+      ]
+      else text ""
+    ]
+
+formField : String -> Html Msg -> Html Msg
+formField labeltext inputelem =
+  div [ class "field is-horizontal" ]
+    [ div [ class "field-label is-normal" ] [ label [ class "label" ] [ text labeltext ] ]
+    , div [ class "field-body" ]
+      [ div [ class "field is-narrow" ]
+        [ div [ class "control" ] [ inputelem ]
+        ]
       ]
     ]
+  
 
 recordRow : Bool -> String -> Record.Record -> Html Msg
 recordRow itsme userId record =
