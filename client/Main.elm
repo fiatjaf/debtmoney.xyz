@@ -10,6 +10,7 @@ import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
 import Navigation exposing (Location)
 import Task exposing (Task)
 import Http
+import Dict
 import Time exposing (Time)
 import Process
 import Json.Decode as JD
@@ -248,13 +249,31 @@ userView itsme user =
     , if itsme then div [ id "declaringdebt" ]
       [ h2 [] [ text "Declare a debt:" ]
       , formField "Creditor:"
-        <| input [ type_ "text", placeholder "name@gmail.com", onInput ChangeDebtCreditor ] []
+        <| input
+          [ type_ "text"
+          , class "input"
+          , placeholder "name@gmail.com"
+          , onInput ChangeDebtCreditor
+          ] []
       , formField "Currency:"
-        <| input [ type_ "text", placeholder "USD", onInput ChangeDebtAsset ] []
+        <| input
+          [ type_ "text"
+          , class "input"
+          , placeholder "USD"
+          , onInput ChangeDebtAsset
+          ] []
       , formField "Amount"
-        <| input [ type_ "number", placeholder "37", step "0.01", onInput ChangeDebtAmount ] []
+        <| input
+          [ type_ "text"
+          , class "input"
+          , placeholder "37"
+          , onInput ChangeDebtAmount
+          ] []
       , formField ""
-        <| button [ onClick SubmitDebtDeclaration ] [ text "submit" ]
+        <| button
+          [ onClick SubmitDebtDeclaration
+          , class "button is-primary"
+          ] [ text "submit" ]
       ]
       else text ""
     ]
@@ -307,11 +326,37 @@ recordDescription record =
     Blank -> span [] []
     Debt debt ->
       span []
-        [ userLink debt.from
+        [ userLink debt.debtor
         , text " has borrowed "
         , amount record.asset debt.amount
         , text " from "
-        , userLink debt.to
+        , userLink debt.creditor
+        ]
+    Payment pmt ->
+      span []
+        [ userLink pmt.payer
+        , text " has paid "
+        , amount record.asset pmt.amount
+        , span [] <|
+          if pmt.object /= ""
+          then [ text " for "
+          , text pmt.object
+          , text " on behalf of "
+          ]
+          else [ text " to " ]
+        , userLink pmt.payee
+        ]
+    BillSplit bs ->
+      span []
+        [ span []
+            <| List.map userLink
+            <| Dict.keys bs.parties
+        , text " have paid "
+        , span []
+            <| List.map (\p -> text <| p.paid ++ " of " ++ p.due ++ " due")
+            <| Dict.values bs.parties
+        , text " for "
+        , text bs.object
         ]
 
 assetRow : User.Balance -> Html Msg

@@ -263,9 +263,9 @@ func (me User) createDebt(from, to, assetCode, amount string) (*BaseRecord, erro
 	var r BaseRecord
 
 	desc, _ := json.Marshal(Debt{
-		From:   from,
-		To:     to,
-		Amount: amount,
+		Debtor:   from,
+		Creditor: to,
+		Amount:   amount,
 	})
 
 	err := pg.Get(&r, `

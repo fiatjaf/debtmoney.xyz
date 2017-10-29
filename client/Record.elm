@@ -4,6 +4,7 @@ module Record exposing
   , DeclareDebt, setCreditor, setAsset, setAmount, declareDebtEncoder
   )
 
+import Dict exposing (Dict)
 import Json.Decode as J exposing (field, list, int, string, bool)
 import Json.Encode as E
 
@@ -25,9 +26,25 @@ defaultRecord = Record 0 "" "" "" Blank [] []
 
 type Desc
   = Debt DebtDescription
+  | Payment PaymentDescription
+  | BillSplit BillSplitDescription
   | Blank
 
-type alias DebtDescription = { from : String, to : String, amount : String }
+type alias DebtDescription =
+  { debtor : String
+  , creditor : String
+  , amount : String
+  }
+type alias PaymentDescription =
+  { payer : String
+  , payee : String
+  , amount : String
+  , object : String
+  }
+type alias BillSplitDescription =
+  { parties : Dict String { due : String, paid : String }
+  , object : String
+  }
 
 
 recordDecoder : J.Decoder Record
@@ -37,17 +54,34 @@ recordDecoder =
     ( field "created_at" string )
     ( field "kind" string )
     ( field "asset" string )
-    ( field "description" <| J.oneOf [ debtDecoder ] )
+    ( field "description" <| J.oneOf [ debtDecoder, paymentDecoder, billSplitDecoder ] )
     ( field "confirmed" <| list string )
     ( field "transactions" <| list string )
 
 debtDecoder : J.Decoder Desc
 debtDecoder =
-  J.map3 ( \a b c -> Debt (DebtDescription a b c) )
-    ( field "from" string )
-    ( field "to" string )
+  J.map Debt <| J.map3 DebtDescription
+    ( field "debtor" string )
+    ( field "creditor" string )
     ( field "amt" string )
 
+paymentDecoder : J.Decoder Desc
+paymentDecoder =
+  J.map Payment <| J.map4 PaymentDescription
+    ( field "payer" string )
+    ( field "payee" string )
+    ( field "amt" string )
+    ( field "obj" string )
+
+billSplitDecoder : J.Decoder Desc
+billSplitDecoder =
+  J.map BillSplit <| J.map2 BillSplitDescription
+    ( J.dict
+      <| J.map2 (\d p -> { due=d, paid=p })
+        ( field "due" string )
+        ( field "due" string )
+    )
+    ( field "obj" string )
 
 type alias DeclareDebt =
   { creditor : String

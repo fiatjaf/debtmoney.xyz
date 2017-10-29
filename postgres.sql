@@ -8,8 +8,14 @@ CREATE TABLE users (
 );
 
 CREATE TYPE record_kind AS ENUM (
-  'debt',
-  'payment',
+  'debt', -- a simple declaration of a debt contracted in the real world
+  'payment', -- same as above, but the meaning is slightly different: someone
+             -- has paid something for another.
+             -- this applies in most cases where 'debt' can also be applied,
+             -- however, if can also be used in multihop payments, for example:
+             -- B has paid something to C for A: this creates the equivalent of a
+             -- debt from A to B (but that should happen automatically, through
+             -- token exchange).
   'bill-split'
 );
 

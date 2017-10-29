@@ -17,7 +17,13 @@ a {
   cursor: pointer;
   text-decoration: none;
 
-  &[href*="/user/"] { color: #2ba042; }
+  &[href*="/user/"] {
+    color: #2ba042;
+
+    & + &:before {
+      content: ', ';
+    }
+  }
   &[href*="/record/"] { color: #fb8e9a; }
 
   &:hover { text-decoration: underline; }

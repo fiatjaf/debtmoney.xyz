@@ -4,36 +4,37 @@ import (
 	b "github.com/stellar/go/build"
 )
 
-type DebtRecord struct {
+type PaymentRecord struct {
 	BaseRecord
 
-	Debt     Debt
-	Debtor   User
-	Creditor User
+	Payment Payment
+	Payer   User
+	Payee   User
 }
 
-type Debt struct {
-	Debtor   string `json:"debtor"`
-	Creditor string `json:"creditor"`
-	Amount   string `json:"amt"`
+type Payment struct {
+	Payee  string `json:"debtor"`
+	Payer  string `json:"creditor"`
+	Amount string `json:"amt"`
+	Object string `json:"obj"`
 }
 
-func instantiateDebtRecord(r BaseRecord) (d DebtRecord, err error) {
+func instantiatePaymentRecord(r BaseRecord) (d PaymentRecord, err error) {
 	d.BaseRecord = r
 
-	err = r.Description.Unmarshal(&d.Debt)
+	err = r.Description.Unmarshal(&d.Payment)
 	if err != nil {
 		return
 	}
 
 	var u User
-	if u, err = ensureUser(d.Debt.Debtor); err == nil {
-		d.Debtor = u
+	if u, err = ensureUser(d.Payment.Payee); err == nil {
+		d.Payee = u
 	} else {
 		return
 	}
-	if u, err = ensureUser(d.Debt.Creditor); err == nil {
-		d.Creditor = u
+	if u, err = ensureUser(d.Payment.Payer); err == nil {
+		d.Payer = u
 	} else {
 		return
 	}
@@ -41,30 +42,30 @@ func instantiateDebtRecord(r BaseRecord) (d DebtRecord, err error) {
 	return
 }
 
-func (d DebtRecord) shouldPublish() bool {
-	var debtorConfirmed bool
-	var creditorConfirmed bool
+func (d PaymentRecord) shouldPublish() bool {
+	var payeeConfirmed bool
+	var payerConfirmed bool
 	for _, uconfirmed := range d.Confirmed {
-		if uconfirmed == d.Debt.Debtor {
-			debtorConfirmed = true
+		if uconfirmed == d.Payment.Payee {
+			payeeConfirmed = true
 		}
-		if uconfirmed == d.Debt.Creditor {
-			creditorConfirmed = true
+		if uconfirmed == d.Payment.Payer {
+			payerConfirmed = true
 		}
 	}
-	if debtorConfirmed && creditorConfirmed {
+	if payeeConfirmed && payerConfirmed {
 		return true
 	}
 
 	return false
 }
 
-func (d DebtRecord) publish() error {
+func (d PaymentRecord) publish() error {
 	log.Info().Int("record", d.Id).Msg("publishing")
 
 	fundtotal := 0 // extra balance reserve needed to the receiver of the IOU
 
-	fund, trustness, err := d.Creditor.trust(d.Debtor, d.Asset, d.Debt.Amount)
+	fund, trustness, err := d.Payer.trust(d.Payee, d.Asset, d.Payment.Amount)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to create trustline mutator")
 		return err
@@ -74,13 +75,13 @@ func (d DebtRecord) publish() error {
 	}
 
 	paymentness := b.Payment(
-		b.SourceAccount{d.Debtor.Address},
-		b.Destination{d.Creditor.Address},
-		b.CreditAmount{d.Asset, d.Debtor.Address, d.Debt.Amount},
+		b.SourceAccount{d.Payee.Address},
+		b.Destination{d.Payer.Address},
+		b.CreditAmount{d.Asset, d.Payee.Address, d.Payment.Amount},
 	)
 
-	fund, offerness, err := d.Creditor.offer(
-		d.Debtor, d.Asset, d.Creditor, d.Asset, "1", d.Debt.Amount)
+	fund, offerness, err := d.Payer.offer(
+		d.Payee, d.Asset, d.Payer, d.Asset, "1", d.Payment.Amount)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to create offer mutator")
 		return err
@@ -95,18 +96,18 @@ func (d DebtRecord) publish() error {
 	var issuerness b.TransactionMutator
 	var receiverness b.TransactionMutator
 
-	if d.Debtor.ha.ID == "" {
+	if d.Payee.ha.ID == "" {
 		// account doesn't exist on stellar
-		issuerness = d.Debtor.fundInitial(20)
+		issuerness = d.Payee.fundInitial(20)
 	} else {
 		issuerness = b.Defaults{}
 	}
 
-	if d.Creditor.ha.ID == "" {
+	if d.Payer.ha.ID == "" {
 		// account doesn't exist on stellar
-		receiverness = d.Creditor.fundInitial(fundtotal + 20)
+		receiverness = d.Payer.fundInitial(fundtotal + 20)
 	} else {
-		receiverness = d.Creditor.fund(fundtotal)
+		receiverness = d.Payer.fund(fundtotal)
 	}
 
 	tx.Mutate(
@@ -117,7 +118,7 @@ func (d DebtRecord) publish() error {
 		offerness,
 	)
 
-	hash, err := commitStellarTransaction(tx, s.SourceSeed, d.Creditor.Seed, d.Debtor.Seed)
+	hash, err := commitStellarTransaction(tx, s.SourceSeed, d.Payer.Seed, d.Payee.Seed)
 	if err != nil {
 		return err
 	}
