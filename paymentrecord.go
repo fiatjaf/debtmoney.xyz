@@ -111,6 +111,7 @@ func (d PaymentRecord) publish() error {
 	}
 
 	tx.Mutate(
+		b.MemoID{uint64(d.Id)},
 		issuerness,
 		receiverness,
 		trustness,

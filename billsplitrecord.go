@@ -184,6 +184,7 @@ func (d BillSplitRecord) publish() error {
 	log.Info().Msg("publishing a single transaction")
 	tx := createStellarTransaction()
 
+	tx.Mutate(b.MemoID{uint64(d.Id)})
 	tx.Mutate(accountsetups...)
 	tx.Mutate(operations...)
 
