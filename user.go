@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 
-	"github.com/jmoiron/sqlx/types"
 	"github.com/shopspring/decimal"
 	b "github.com/stellar/go/build"
 	"github.com/stellar/go/clients/horizon"
@@ -13,13 +11,20 @@ import (
 )
 
 type User struct {
-	Id       string       `json:"id"       db:"id"`
-	Address  string       `json:"address"  db:"address"`
-	Seed     string       `json:"-"        db:"seed"`
-	Balances []Balance    `json:"balances" db:"-"`
-	Records  []BaseRecord `json:"records"  db:"-"`
+	Id      string `json:"id"       db:"id"`
+	Address string `json:"address"  db:"address"`
+	Seed    string `json:"-"        db:"seed"`
+
+	Balances []Balance `json:"balances"`
+	Things   []Thing   `json:"things"`
 
 	ha horizon.Account
+}
+
+type Balance struct {
+	Asset  string `json:"asset"`
+	Amount string `json:"amount"`
+	Limit  string `json:"limit"`
 }
 
 func ensureUser(id string) (user User, err error) {
@@ -37,7 +42,7 @@ SELECT * FROM users
  WHERE id = $1
     `, id)
 	if err != nil && err.Error() != "sql: no rows in result set" {
-		log.Warn().Err(err).Msg("failed to find user")
+		log.Warn().Err(err).Msg("searching user")
 		return
 	}
 
@@ -69,7 +74,7 @@ INSERT INTO users (id, address, seed)
 VALUES ($1, $2, $3)
     `, id, pair.Address(), pair.Seed())
 	if err != nil {
-		log.Warn().Err(err).Str("id", id).Msg("failed to create account on db")
+		log.Warn().Err(err).Str("id", id).Msg("failed to create user on db")
 		return
 	}
 
@@ -257,28 +262,4 @@ func (user User) offer(
 			existingOffer, // if zero will create a new offer, no problem.
 		),
 		nil
-}
-
-func (me User) createDebt(from, to, assetCode, amount string) (*BaseRecord, error) {
-	var r BaseRecord
-
-	desc, _ := json.Marshal(Debt{
-		Debtor:   from,
-		Creditor: to,
-		Amount:   amount,
-	})
-
-	err := pg.Get(&r, `
-INSERT INTO records (kind, description, asset, confirmed)
-VALUES ('debt', $1, $2, $3)
-RETURNING *
-    `, types.JSONText(desc), assetCode, StringSlice{me.Id})
-
-	return &r, err
-}
-
-type Balance struct {
-	Asset  string `json:"asset"`
-	Amount string `json:"amount"`
-	Limit  string `json:"limit"`
 }

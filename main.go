@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/handler"
 	_ "github.com/lib/pq"
 
 	"github.com/fiatjaf/accountd"
@@ -34,6 +37,7 @@ var h *horizon.Client
 var n build.Network
 var pg *sqlx.DB
 var router *mux.Router
+var schema graphql.Schema
 var sessionStore *sessions.CookieStore
 var log = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
@@ -59,14 +63,15 @@ func main() {
 		log.Fatal().Err(err).Str("uri", s.PostgresURL).Msg("failed to connect to pg")
 	}
 
+	// graphql schema
+	schema, err = graphql.NewSchema(schemaConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create graphql schema")
+	}
+	handler := handler.New(&handler.Config{Schema: &schema})
+
 	// define routes
 	router = mux.NewRouter()
-
-	api := router.PathPrefix("/_").Subrouter()
-	api.Path("/user/{id}").Methods("GET").HandlerFunc(handleGetUser)
-	api.Path("/record/debt").Methods("POST").HandlerFunc(handleCreateDebt)
-	api.Path("/record/{id}").Methods("GET").HandlerFunc(handleGetRecord)
-	api.Path("/record/{id}/confirm").Methods("POST").HandlerFunc(handleConfirm)
 
 	router.PathPrefix("/app/").Methods("GET").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -77,11 +82,31 @@ func main() {
 			http.ServeFile(w, r, "./client/"+r.URL.Path[5:])
 		},
 	)
+
+	router.Path("/_graphql").Methods("POST").HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.TODO()
+
+			session, err := sessionStore.Get(r, "auth-session")
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
+			if userId, ok := session.Values["userId"]; ok {
+				ctx = context.WithValue(ctx, "userId", userId)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			handler.ContextHandler(ctx, w, r)
+		},
+	)
+
 	router.Path("/auth/callback").Methods("GET").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			code := r.URL.Query().Get("code")
 
-			user, err := accountd.VerifyAuth(code)
+			accountduser, err := accountd.VerifyAuth(code)
 
 			if err != nil {
 				log.Error().Err(err).Msg("invalid authorization")
@@ -99,30 +124,25 @@ func main() {
 				// has declared a debt with fulano@twitter we want to
 				// know if this new logged user owns fulano@twitter and
 				// redirect these debts to him).
-				params := make([]interface{}, len(user.Accounts)+1)
-				params[0] = user.Id
-				accvars := make([]string, len(user.Accounts))
-				for i, account := range user.Accounts {
+				params := make([]interface{}, len(accountduser.Accounts)+1)
+				params[0] = accountduser.Id
+				accvars := make([]string, len(accountduser.Accounts))
+				for i, account := range accountduser.Accounts {
 					params[i+1] = account.Account
 					accvars[i] = "$" + strconv.Itoa(i+2)
 				}
 				vars := strings.Join(accvars, ",")
 
 				_, err = pg.Exec(`
-UPDATE records SET description = CASE
-  WHEN description->>'from' IN (`+vars+`) THEN jsonb_set(description, '{from}', to_jsonb($1::text))
-  WHEN description->>'to' IN (`+vars+`) THEN jsonb_set(description, '{to}', to_jsonb($1::text))
-END
-  WHERE description->>'from' IN (`+vars+`)
-     OR description->>'to' IN (`+vars+`)
+UPDATE parties SET userId = $1 WHERE userId IN (`+vars+`)
                 `, params...)
 				if err != nil {
-					log.Error().Err(err).Str("user", user.Id).
-						Msg("failed to update accounts to user")
+					log.Error().Err(err).Str("user", accountduser.Id).
+						Msg("failed to update parties records to user")
 				}
 
 				// finally we set up the session
-				session.Values["userId"] = user.Id
+				session.Values["userId"] = accountduser.Id
 				session.Save(r, w)
 				http.Redirect(w, r, "/app/", 302)
 			}
