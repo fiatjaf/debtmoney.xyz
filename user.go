@@ -118,18 +118,18 @@ func (rec User) trust(
 	iss User,
 	asset string,
 	add string,
-) (bool, b.TransactionMutator, error) {
+) (fund bool, mutator b.TransactionMutator, didtrust bool, err error) {
 	add_, err := decimal.NewFromString(add)
 	if err != nil {
-		return false, b.Defaults{}, err
+		return false, b.Defaults{}, false, err
 	}
 
 	zero := decimal.Decimal{}
 	if add_.Equals(zero) {
-		return false, b.Defaults{}, nil
+		return false, b.Defaults{}, false, nil
 	}
 
-	fund := true
+	fund = true
 	newTrust := add_
 
 	for _, balance := range rec.ha.Balances {
@@ -143,7 +143,7 @@ func (rec User) trust(
 				log.Warn().Err(err).
 					Str("limit", balance.Limit).
 					Msg("wrong values received from horizon")
-				return false, b.Defaults{}, err
+				return false, b.Defaults{}, false, err
 			}
 
 			decimalbalance, err := decimal.NewFromString(balance.Balance)
@@ -151,12 +151,12 @@ func (rec User) trust(
 				log.Warn().Err(err).
 					Str("balance", balance.Balance).
 					Msg("wrong values received from horizon")
-				return false, b.Defaults{}, err
+				return false, b.Defaults{}, false, err
 			}
 			free := limit.Sub(decimalbalance)
 			if free.GreaterThan(add_) {
 				// nothing to change
-				return false, b.Defaults{}, nil
+				return false, b.Defaults{}, false, nil
 			} else {
 				newTrust = add_.Add(limit).Sub(free)
 			}
@@ -177,6 +177,7 @@ func (rec User) trust(
 			b.Limit(newTrust.StringFixed(2)),
 			b.SourceAccount{rec.Address},
 		),
+		true,
 		nil
 }
 

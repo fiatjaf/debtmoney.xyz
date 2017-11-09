@@ -91,7 +91,7 @@ var userType = graphql.NewObject(
 					user.Things = []Thing{}
 					err = pg.Select(&user.Things, `
 SELECT * FROM things
-INNER JOIN things.id = parties.thing_id
+INNER JOIN parties ON things.id = parties.thing_id
 WHERE parties.thing_id = $1
 ORDER BY thing_date
                     `, user.Id)
@@ -122,18 +122,7 @@ var thingType = graphql.NewObject(
 				Type: graphql.NewList(partyType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					thing := p.Source.(Thing)
-
-					thing.Parties = []Party{}
-					err = pg.Select(&thing.Parties, `
-SELECT * FROM parties
-WHERE thing_id = $1
-                    `, thing.Id)
-					if err != nil {
-						log.Error().Str("thing", thing.Id).Err(err).
-							Msg("on thing parties query")
-						err = nil
-					}
-
+					err := thing.fillParties()
 					return thing.Parties, err
 				},
 			},

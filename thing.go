@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	b "github.com/stellar/go/build"
 )
 
 type Thing struct {
@@ -29,8 +30,15 @@ type Party struct {
 	Due       decimal.Decimal `json:"due"        db:"due"`
 	Confirmed bool            `json:"confirmed"  db:"confirmed"`
 
+	User
+
 	Registered bool `json:"registered" db:"registered"`
+
+	// fields to store working values
+	valueAssigned decimal.Decimal
 }
+
+func (p Party) Balance() decimal.Decimal { return p.Paid.Sub(p.Due).Abs() }
 
 func confirmThing(id string, userId string) (thing Thing, published bool, err error) {
 	log.Info().
@@ -60,190 +68,211 @@ WHERE id = upd
 	return
 }
 
-func instantiateThing(r Thing) (err error) {
-	// 	d.Peers = make(map[string]User)
-	// 	var u User
-	//
-	// 	for _, peeramount := range d.Dues {
-	// 		if u, err = ensureUser(id); err != nil {
-	// 			return
-	// 		}
-	// 		d.Peers[id] = u
-	// 	}
-	//
-	// 	for _, peeramount := range d.Payments {
-	// 		if _, alreadythere := d.Peers[id]; alreadythere {
-	// 			continue
-	// 		}
-	//
-	// 		if u, err = ensureUser(id); err != nil {
-	// 			return
-	// 		}
-	// 		d.Peers[id] = u
-	// 	}
-	//
-	return
+func (thing Thing) fillParties() (err error) {
+	if thing.Parties != nil && len(thing.Parties) > 0 {
+		return nil
+	}
+
+	thing.Parties = []Party{}
+	err = pg.Select(&thing.Parties, `
+SELECT parties.*, users.* FROM parties
+INNER JOIN users ON users.id = parties.thing_id
+WHERE thing_id = $1
+                    `, thing.Id)
+	if err != nil {
+		log.Error().Str("thing", thing.Id).Err(err).
+			Msg("on thing parties query")
+	}
+	return err
 }
 
 func (thing Thing) publish() (published bool, err error) {
-	/*
-			log.Info().Int("thing", thing.Id).Msg("publishing")
+	log.Info().Str("thing", thing.Id).Msg("publishing")
 
-			// determining who must receive and who must issue IOUs
-			// -- we trust the total owed equals the total overpaid
+	err = thing.fillParties()
+	if err != nil {
+		return
+	}
 
-			// also keep track of all private keys that will have to be used for signing
-			var seeds []string
+	// determining who must receive and who must issue IOUs
+	// -- we trust the total owed equals the total overpaid
 
-			receivers := make(map[string]decimal.Decimal)
-			issuers := make(map[string]decimal.Decimal)
-			for id, x := range d.BillSplit.Parties {
-				due, _ := decimal.NewFromString(x.Due)
-				paid, _ := decimal.NewFromString(x.Paid)
+	var receivers []Party
+	var issuers []Party
+	totalLent := decimal.Decimal{}     // not the total amount paid, just the difference
+	totalBorrowed := decimal.Decimal{} // not the total amount due, ...
+	for _, x := range thing.Parties {
+		if x.Due.GreaterThan(x.Paid) {
+			issuers = append(issuers, x)
+			totalLent = totalLent.Add(x.Balance())
+		} else if x.Due.LessThan(x.Paid) {
+			receivers = append(receivers, x)
+			totalBorrowed = totalBorrowed.Add(x.Balance())
+		} else {
+			continue
+			// this peer has paid exactly what he was due,
+			// do not involve him in the transaction
+		}
+	}
 
-				if due.GreaterThan(paid) {
-					issuers[id] = due.Sub(paid)
-				} else if due.LessThan(paid) {
-					receivers[id] = paid.Sub(due)
-				} else {
-					continue // this peer has paid exactly what he was due, do not involve him in the transaction
-				}
+	if !totalLent.Equals(totalBorrowed) {
+		err = errors.New("unequal totals")
+		return
+	}
 
-				seeds = append(seeds, d.Peers[id].Seed)
+	// now whom will receive from whom?
+	total := totalLent
+
+	// -- determine the share each must receive
+	// -- and make a list of all "payment pairs" we must issue
+	type pair struct {
+		value decimal.Decimal
+		from  User
+		to    User
+	}
+	var pairs []pair
+
+	for _, iss := range issuers {
+		totalAssigned := decimal.Decimal{}
+
+		for i, rec := range receivers {
+			var value decimal.Decimal
+			if i != len(receivers)-1 {
+				value = iss.Balance().
+					Mul(rec.Balance()).
+					DivRound(total, 2)
+				totalAssigned = totalAssigned.Add(value)
+			} else {
+				// last one will take the remnant
+				value = total.Sub(totalAssigned)
 			}
 
-			// now whom will receive from whom?
-			// -- make a list of all "payment pairs" we must issue
-			type pair struct {
-				value decimal.Decimal
-				from  User
-				to    User
-			}
-			var pairs []pair
+			pairs = append(pairs, pair{value, iss.User, rec.User})
+		}
+	}
 
-			zero := decimal.Decimal{}
-			for rid, rtotal := range receivers {
-				for iid, itotal := range issuers {
-					if rtotal.Equal(zero) {
-						break
-					}
-					if itotal.Equal(zero) {
-						continue
-					}
+	// we must keep track of the total funding each account will have to receive
+	tofund := make(map[string]int)
+	for _, peer := range thing.Peers {
+		tofund[peer.Id] = 0
+	}
 
-					var amount decimal.Decimal
-					if rtotal.GreaterThan(itotal) {
-						amount = itotal
-					} else {
-						amount = rtotal
-					}
-					pairs = append(pairs, pair{itotal, d.Peers[iid], d.Peers[rid]})
-					receivers[rid] = rtotal.Sub(amount)
-					issuers[iid] = itotal.Sub(amount)
-				}
-			}
+	// let's also store all the transaction operations
+	var operations []b.TransactionMutator
 
-			// we must keep track of the total funding each account will have to receive
-			tofund := make(map[string]int)
-			for _, peer := range d.Peers {
-				tofund[peer.Id] = 0
-			}
+	// keep track of all private keys that will have to be used for signing
+	keys := make(map[string]string)
 
-			// let's also store all the transaction operations
-			var operations []b.TransactionMutator
+	// for each payment pair, we will
+	for _, pair := range pairs {
+		// create or expand the trustline needed
+		var fund bool
+		var trustness b.TransactionMutator
+		var didtrust bool
+		fund, trustness, didtrust, err = pair.to.trust(
+			pair.from,
+			thing.Asset,
+			pair.value.StringFixed(2),
+		)
+		if err != nil {
+			log.Warn().
+				Str("from", pair.from.Id).
+				Str("to", pair.to.Id).
+				Str("value", pair.value.StringFixed(2)).
+				Err(err).Msg("failed to create trustline mutator")
+			return
+		}
 
-			// for each payment pair, we will
-			for _, pair := range pairs {
-				// create or expand the trustline needed
-				fund, trustness, err := pair.to.trust(
-					pair.from,
-					d.Asset,
-					pair.value.StringFixed(2),
-				)
-				if err != nil {
-					log.Warn().
-						Str("from", pair.from.Id).
-						Str("to", pair.to.Id).
-						Str("value", pair.value.StringFixed(2)).
-						Err(err).Msg("failed to create trustline mutator")
-					return err
-				}
-				operations = append(operations, trustness)
-				if fund {
-					tofund[pair.to.Id] += 10
-				}
+		// the transaction must always be signed by the issuing party
+		keys[pair.from.Id] = pair.from.Seed
+		if didtrust {
+			// in the cases which no trustline was created,
+			// we can't sign the transaction as the receiving party
+			keys[pair.to.Id] = pair.to.Seed
+		}
 
-				// do the payment
-				paymentness := b.Payment(
-					b.SourceAccount{pair.from.Address},
-					b.Destination{pair.to.Address},
-					b.CreditAmount{d.Asset, pair.from.Address, pair.value.StringFixed(2)},
-				)
-				operations = append(operations, paymentness)
+		operations = append(operations, trustness)
+		if fund {
+			tofund[pair.to.Id] += 10
+		}
 
-				// create an offer
-				fund, offerness, err := pair.to.offer(
-					pair.from, d.Asset, pair.to, d.Asset, "1", pair.value.StringFixed(2))
-				if err != nil {
-					log.Warn().
-						Str("offerer", pair.from.Id).
-						Str("asset-issuer", pair.to.Id).
-						Str("value", pair.value.StringFixed(2)).
-						Err(err).Msg("failed to create offer mutator")
-					return err
-				}
-				if fund {
-					tofund[pair.to.Id] += 10
-				}
-				operations = append(operations, offerness)
-			}
+		// do the payment
+		paymentness := b.Payment(
+			b.SourceAccount{pair.from.Address},
+			b.Destination{pair.to.Address},
+			b.CreditAmount{thing.Asset, pair.from.Address, pair.value.StringFixed(2)},
+		)
+		operations = append(operations, paymentness)
 
-			// now we'll determine if the accounts need to be created
-			var accountsetups []b.TransactionMutator
+		// create an offer
+		var offerness b.TransactionMutator
+		fund, offerness, err = pair.to.offer(
+			pair.from, thing.Asset, pair.to, thing.Asset, "1", pair.value.StringFixed(2))
+		if err != nil {
+			log.Warn().
+				Str("offerer", pair.from.Id).
+				Str("asset-issuer", pair.to.Id).
+				Str("value", pair.value.StringFixed(2)).
+				Err(err).Msg("failed to create offer mutator")
+			return
+		}
+		if fund {
+			tofund[pair.to.Id] += 10
+		}
+		operations = append(operations, offerness)
+	}
 
-			for _, peer := range d.Peers {
-				neededfunds := tofund[peer.Id]
+	// now we'll determine if the accounts need to be created
+	var accountsetups []b.TransactionMutator
 
-				if peer.ha.ID == "" {
-					// doesn't exist on stellar, will create
-					accountness := peer.fundInitial(neededfunds + 20)
-					accountsetups = append(accountsetups, accountness)
-				} else if neededfunds > 0 {
-					accountness := peer.fund(neededfunds)
-					accountsetups = append(accountsetups, accountness)
-				}
-			}
+	for _, peer := range thing.Peers {
+		neededfunds := tofund[peer.Id]
 
-			log.Info().Msg("publishing a single transaction")
-			tx := createStellarTransaction()
+		if peer.ha.ID == "" {
+			// doesn't exist on stellar, will create
+			accountness := peer.fundInitial(neededfunds + 20)
+			accountsetups = append(accountsetups, accountness)
+		} else if neededfunds > 0 {
+			accountness := peer.fund(neededfunds)
+			accountsetups = append(accountsetups, accountness)
+		}
+	}
 
-			tx.Mutate(b.MemoID{uint64(d.Id)})
-			tx.Mutate(accountsetups...)
-			tx.Mutate(operations...)
+	log.Info().Msg("publishing a single transaction")
+	tx := createStellarTransaction()
 
-			seeds = append(seeds, s.SourceSeed)
-			hash, err := commitStellarTransaction(tx, seeds...)
-			if err != nil {
-				return err
-			}
+	tx.Mutate(b.MemoText{thing.Id})
+	tx.Mutate(accountsetups...)
+	tx.Mutate(operations...)
 
-			// now commit the postgres transaction
-			if err == nil {
-				_, err := pg.Exec(`
-		UPDATE records
-		   SET transactions = array_append(transactions, $2)
-		 WHERE id = $1
-		    `, d.Id, hash)
+	seeds := make([]string, len(keys)+1)
+	i := 0
+	for _, key := range keys {
+		seeds[i] = key
+		i++
+	}
+	seeds[i] = s.SourceSeed
 
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("tx", hash).
-						Msg("failed to append hash to postgres after stellar transaction ")
-				}
-			}
+	hash, err := commitStellarTransaction(tx, seeds...)
+	if err != nil {
+		return false, err
+	}
 
-			return err
-	*/
+	published = true
+
+	// now commit the postgres transaction
+	if err == nil {
+		_, err := pg.Exec(`
+UPDATE thing SET txn = $1 WHERE id = $2
+		    `, hash, thing.Id)
+
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("tx", hash).
+				Msg("failed to append hash to postgres after stellar transaction ")
+		}
+	}
+
 	return
 }
