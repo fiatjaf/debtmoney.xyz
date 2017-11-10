@@ -7,12 +7,12 @@ prefix = "/app"
 
 type Page
   = HomePage
-  | RecordPage Int
+  | ThingPage String
   | UserPage String
   | NotFound
 
 homePage = HomePage := static ""
-recordPage = RecordPage := static "record" </> Route.int
+recordPage = ThingPage := static "record" </> Route.string
 userPage = UserPage := static "user" </> Route.string
 
 routes = Route.router [homePage, recordPage, userPage]

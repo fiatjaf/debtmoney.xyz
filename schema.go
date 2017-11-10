@@ -90,7 +90,7 @@ var userType = graphql.NewObject(
 
 					user.Things = []Thing{}
 					err = pg.Select(&user.Things, `
-SELECT * FROM things
+SELECT things.* FROM things
 INNER JOIN parties ON things.id = parties.thing_id
 WHERE parties.thing_id = $1
 ORDER BY thing_date
@@ -112,12 +112,12 @@ var thingType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "ThingType",
 		Fields: graphql.Fields{
-			"id":          &graphql.Field{Type: graphql.String},
-			"created_at":  &graphql.Field{Type: graphql.String},
-			"thing_date":  &graphql.Field{Type: graphql.String},
-			"nane":        &graphql.Field{Type: graphql.String},
-			"asset":       &graphql.Field{Type: graphql.String},
-			"transaction": &graphql.Field{Type: graphql.String},
+			"id":         &graphql.Field{Type: graphql.String},
+			"created_at": &graphql.Field{Type: graphql.String},
+			"thing_date": &graphql.Field{Type: graphql.String},
+			"name":       &graphql.Field{Type: graphql.String},
+			"asset":      &graphql.Field{Type: graphql.String},
+			"txn":        &graphql.Field{Type: graphql.String},
 			"parties": &graphql.Field{
 				Type: graphql.NewList(partyType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -134,7 +134,7 @@ var partyType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "PartyType",
 		Fields: graphql.Fields{
-			"userId":     &graphql.Field{Type: graphql.String},
+			"user_id":    &graphql.Field{Type: graphql.String},
 			"thing_id":   &graphql.Field{Type: graphql.String},
 			"paid":       &graphql.Field{Type: graphql.String},
 			"due":        &graphql.Field{Type: graphql.String},
@@ -150,6 +150,7 @@ var balanceType = graphql.NewObject(
 		Fields: graphql.Fields{
 			"asset":  &graphql.Field{Type: graphql.String},
 			"amount": &graphql.Field{Type: graphql.String},
+			"limit":  &graphql.Field{Type: graphql.String},
 		},
 	},
 )

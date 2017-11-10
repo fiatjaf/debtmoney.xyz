@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/rs/cors"
 	"github.com/rs/zerolog"
 	"github.com/stellar/go/build"
 	"github.com/stellar/go/clients/horizon"
@@ -134,7 +135,7 @@ func main() {
 				vars := strings.Join(accvars, ",")
 
 				_, err = pg.Exec(`
-UPDATE parties SET userId = $1 WHERE userId IN (`+vars+`)
+UPDATE parties SET user_id = $1 WHERE user_id IN (`+vars+`)
                 `, params...)
 				if err != nil {
 					log.Error().Err(err).Str("user", accountduser.Id).
@@ -154,7 +155,12 @@ UPDATE parties SET userId = $1 WHERE userId IN (`+vars+`)
 		},
 	)
 
+	c := cors.New(cors.Options{
+		AllowCredentials: true,
+		AllowOriginFunc:  func(origin string) bool { return true },
+	})
+
 	// start the server
 	log.Info().Str("port", os.Getenv("PORT")).Msg("listening.")
-	graceful.Run(":"+os.Getenv("PORT"), 10*time.Second, router)
+	graceful.Run(":"+os.Getenv("PORT"), 10*time.Second, c.Handler(router))
 }

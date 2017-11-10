@@ -1,15 +1,18 @@
-module User exposing (User, Balance, defaultUser, userDecoder, balanceDecoder)
+module User exposing (..)
 
-import Json.Decode as J exposing (field, list, int, string, bool)
+import GraphQL.Request.Builder exposing (..)
+import GraphQL.Request.Builder.Arg as Arg
+import GraphQL.Request.Builder.Variable as Var
 
-import Record
+import Helpers exposing (..)
+import Thing exposing (..)
 
 
 type alias User =
   { id : String
   , address : String
   , balances : List Balance
-  , records : List Record.Record
+  , things : List Thing
   }
 
 type alias Balance =
@@ -21,18 +24,23 @@ type alias Balance =
 defaultUser : User
 defaultUser = User "" "" [] []
 
+userQuery : Document Query User String
+userQuery =
+  extract
+    ( field "user"
+      [ ( "id", Arg.variable <| Var.required "id" identity Var.string )
+      ]
+      userSpec
+    )
+    |> queryDocument
 
-userDecoder : J.Decoder User
-userDecoder =
-  J.map4 User
-    ( field "id" string )
-    ( field "address" string )
-    ( field "balances" <| list balanceDecoder )
-    ( field "records" <| list Record.recordDecoder )
+userSpec = object User
+  |> with ( field "id" [] string )
+  |> with ( field "address" [] string )
+  |> with ( field "balances" [] (list balanceSpec) )
+  |> with ( field "things" [] (list thingSpec) )
 
-balanceDecoder : J.Decoder Balance
-balanceDecoder =
-  J.map3 Balance
-    ( field "asset" string )
-    ( field "amount" string )
-    ( field "limit" string )
+balanceSpec = object Balance
+  |> with ( field "asset" [] string )
+  |> with ( field "amount" [] string )
+  |> with ( field "limit" [] string )

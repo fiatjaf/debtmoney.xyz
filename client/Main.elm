@@ -18,10 +18,13 @@ import Json.Encode as JE
 import Result
 import Date
 import Date.Format
+import GraphQL.Client.Http exposing (sendQuery, sendMutation)
+import GraphQL.Request.Builder exposing (request)
 
 import Page exposing (..)
-import User
-import Record exposing (Desc(..))
+import User exposing (..)
+import Thing exposing (..)
+import Helpers exposing (..)
 
 
 type alias Flags = {}
@@ -42,8 +45,7 @@ type alias Model =
   { me : User.User
   , route : Page
   , user : User.User
-  , record : Record.Record
-  , declaringDebt : Record.DeclareDebt
+  , thing : Thing.Thing
   , error : String
   , loading : String
   }
@@ -57,8 +59,7 @@ init flags location =
         User.defaultUser
         HomePage
         User.defaultUser
-        Record.defaultRecord
-        (Record.DeclareDebt "" "" "0.00")
+        Thing.defaultThing
         ""
         ""
     (nextm, handlelocation) = update (Navigate location.pathname) m
@@ -67,20 +68,22 @@ init flags location =
 
 
 -- UPDATE
+
+
 type Msg
   = EraseError
   | Navigate String
   | LoadMyself
-  | GotMyself (Result Http.Error User.User)
-  | GotUser (Result Http.Error User.User)
-  | GotRecord (Result Http.Error Record.Record)
-  | ChangeDebtCreditor String
-  | ChangeDebtAsset String
-  | ChangeDebtAmount String
-  | SubmitDebtDeclaration
-  | GotDebtDeclarationResponse (Result Http.Error ServerResponse)
-  | ConfirmRecord Int
-  | GotRecordConfirmationResponse (Result Http.Error ServerResponse)
+  | GotMyself (Result GraphQL.Client.Http.Error User.User)
+  | GotUser (Result GraphQL.Client.Http.Error User.User)
+  | GotThing (Result GraphQL.Client.Http.Error Thing)
+  -- | ChangeDebtCreditor String
+  -- | ChangeDebtAsset String
+  -- | ChangeDebtAmount String
+  -- | SubmitDebtDeclaration
+  -- | GotDebtDeclarationResponse (Result Http.Error ServerResult)
+  -- | ConfirmThing Int
+  -- | GotThingConfirmationResponse (Result Http.Error ServerResult)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -95,13 +98,17 @@ update msg model =
         m = { model | route = route }
         (nextm, effect) = case route of
           HomePage -> update LoadMyself m
-          RecordPage r ->
-            ( { m | loading = "Loading record..." }
-            , fetchRecord r GotRecord
+          ThingPage thingId ->
+            ( { m | loading = "Loading thing..." }
+            , request thingId thingQuery
+              |> sendQuery "/_graphql"
+              |> Task.attempt GotThing
             )
-          UserPage u ->
-            ( { m | loading = "Loading " ++ u ++ "'s profile..." }
-            , fetchUser u GotUser
+          UserPage userId ->
+            ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
+            , request userId userQuery
+              |> sendQuery "/_graphql"
+              |> Task.attempt GotUser
             )
           NotFound -> ( m, Cmd.none)
         updateurl = if route == model.route
@@ -112,7 +119,9 @@ update msg model =
           
     LoadMyself ->
       ( { model | loading = "Loading your profile..." }
-      , fetchUser "_me" GotMyself
+      , request "me" userQuery
+        |> sendQuery "/_graphql"
+        |> Task.attempt GotMyself
       )
     GotMyself result ->
       case result of
@@ -128,41 +137,41 @@ update msg model =
           ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
-    GotRecord result ->
+    GotThing result ->
       case result of
-        Ok record -> { model | record = record, loading = "" } ! []
+        Ok thing -> { model | thing = thing, loading = "" } ! []
         Err err ->
           ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
-    ChangeDebtCreditor x ->
-      { model | declaringDebt = model.declaringDebt |> Record.setCreditor x } ! []
-    ChangeDebtAsset x ->
-      { model | declaringDebt = model.declaringDebt |> Record.setAsset x } ! []
-    ChangeDebtAmount x ->
-      { model | declaringDebt = model.declaringDebt |> Record.setAmount x } ! []
-    SubmitDebtDeclaration ->
-      ( { model | loading = "Submitting debt declaration..." }
-      , submitDebt model GotDebtDeclarationResponse
-      )
-    GotDebtDeclarationResponse result ->
-      case result of
-        Ok record -> update LoadMyself { model | loading = "" }
-        Err err ->
-          ( { model | error = errorFormat err }
-          , delay (Time.second * 4) EraseError
-          )
-    ConfirmRecord recordId ->
-      ( model
-      , submitConfirmation recordId GotRecordConfirmationResponse
-      )
-    GotRecordConfirmationResponse result ->
-      case result of
-        Ok record -> update LoadMyself { model | loading = "" }
-        Err err ->
-          ( { model | error = errorFormat err }
-          , delay (Time.second * 4) EraseError
-          )
+    -- ChangeDebtCreditor x ->
+    --   { model | declaringDebt = model.declaringDebt |> Thing.setCreditor x } ! []
+    -- ChangeDebtAsset x ->
+    --   { model | declaringDebt = model.declaringDebt |> Thing.setAsset x } ! []
+    -- ChangeDebtAmount x ->
+    --   { model | declaringDebt = model.declaringDebt |> Thing.setAmount x } ! []
+    -- SubmitDebtDeclaration ->
+    --   ( { model | loading = "Submitting debt declaration..." }
+    --   , submitDebt model GotDebtDeclarationResponse
+    --   )
+    -- GotDebtDeclarationResponse result ->
+    --   case result of
+    --     Ok thing -> update LoadMyself { model | loading = "" }
+    --     Err err ->
+    --       ( { model | error = errorFormat err }
+    --       , delay (Time.second * 4) EraseError
+    --       )
+    -- ConfirmThing thingId ->
+    --   ( model
+    --   , submitConfirmation thingId GotThingConfirmationResponse
+    --   )
+    -- GotThingConfirmationResponse result ->
+    --   case result of
+    --     Ok thing -> update LoadMyself { model | loading = "" }
+    --     Err err ->
+    --       ( { model | error = errorFormat err }
+    --       , delay (Time.second * 4) EraseError
+    --       )
 
 
 -- SUBSCRIPTIONS
@@ -182,7 +191,7 @@ view model =
           [ div [ class "field" ]
             [ if model.me.id == ""
               then a [ href "/" ] [ text "login" ]
-              else link "/" model.me.id
+              else text model.me.id
             ]
           ]
         ]
@@ -199,20 +208,19 @@ view model =
       ]
     , section [ class "section" ]
       [ case model.route of
-        HomePage -> userView True model.me
-        RecordPage r -> recordView model.me model.record
-        UserPage u -> userView (model.user.id == model.me.id) model.user
+        HomePage -> userView model.me
+        ThingPage r -> thingView model.thing
+        UserPage u -> userView model.user
         NotFound -> div [] [ text "this page doesn't exists" ]
       ]
     ]
 
 
-userView : Bool -> User.User -> Html Msg
-userView itsme user =
+userView : User -> Html Msg
+userView user =
   div [ id "user" ]
     [ h1 []
-      [ text
-        <| (if itsme then "your" else user.id ++ "'s") ++ " profile"
+      [ text <| user.id ++ "'s" ++ " profile"
       ]
     , div []
       [ h2 [] [ text "operations:" ]
@@ -224,8 +232,8 @@ userView itsme user =
             , th [] [ text "confirmed" ]
             ]
           ]
-        , tbody []
-          <| List.map (recordRow itsme user.id) user.records
+        , tbody [] []
+          -- <| List.map (thingRow user.id) user.things
         ]
       ]
     , div []
@@ -246,206 +254,93 @@ userView itsme user =
           <| List.map assetRow user.balances
         ]
       ]
-    , if itsme then div [ id "declaringdebt" ]
-      [ h2 [] [ text "Declare a debt:" ]
-      , formField "Creditor:"
-        <| input
-          [ type_ "text"
-          , class "input"
-          , placeholder "name@gmail.com"
-          , onInput ChangeDebtCreditor
-          ] []
-      , formField "Currency:"
-        <| input
-          [ type_ "text"
-          , class "input"
-          , placeholder "USD"
-          , onInput ChangeDebtAsset
-          ] []
-      , formField "Amount"
-        <| input
-          [ type_ "text"
-          , class "input"
-          , placeholder "37"
-          , onInput ChangeDebtAmount
-          ] []
-      , formField ""
-        <| button
-          [ onClick SubmitDebtDeclaration
-          , class "button is-primary"
-          ] [ text "submit" ]
-      ]
-      else text ""
     ]
 
-formField : String -> Html Msg -> Html Msg
-formField labeltext inputelem =
-  div [ class "field is-horizontal" ]
-    [ div [ class "field-label is-normal" ] [ label [ class "label" ] [ text labeltext ] ]
-    , div [ class "field-body" ]
-      [ div [ class "field is-narrow" ]
-        [ div [ class "control" ] [ inputelem ]
-        ]
-      ]
-    ]
-  
+--     , if itsme then div [ id "declaringdebt" ]
+--       [ h2 [] [ text "Declare a debt:" ]
+--       , formField "Creditor:"
+--         <| input
+--           [ type_ "text"
+--           , class "input"
+--           , placeholder "name@gmail.com"
+--           , onInput ChangeDebtCreditor
+--           ] []
+--       , formField "Currency:"
+--         <| input
+--           [ type_ "text"
+--           , class "input"
+--           , placeholder "USD"
+--           , onInput ChangeDebtAsset
+--           ] []
+--       , formField "Amount"
+--         <| input
+--           [ type_ "text"
+--           , class "input"
+--           , placeholder "37"
+--           , onInput ChangeDebtAmount
+--           ] []
+--       , formField ""
+--         <| button
+--           [ onClick SubmitDebtDeclaration
+--           , class "button is-primary"
+--           ] [ text "submit" ]
+--       ]
+--       else text ""
+--     ]
+-- 
+-- formField : String -> Html Msg -> Html Msg
+-- formField labeltext inputelem =
+--   div [ class "field is-horizontal" ]
+--     [ div [ class "field-label is-normal" ] [ label [ class "label" ] [ text labeltext ] ]
+--     , div [ class "field-body" ]
+--       [ div [ class "field is-narrow" ]
+--         [ div [ class "control" ] [ inputelem ]
+--         ]
+--       ]
+--     ]
+--   
+-- 
+-- thingRow : Bool -> String -> Thing.Thing -> Html Msg
+-- thingRow itsme userId thing =
+--   let 
+--     confirm =
+--       if itsme
+--         then if List.member userId thing.confirmed
+--         then text ""
+--         else button [ onClick <| ConfirmThing thing.id ] [ text "confirm" ]
+--       else text ""
+--   in
+--     tr []
+--       [ td [] [ link ("/thing/" ++ (toString thing.id)) (date thing.date) ]
+--       , td [] [ thingDescription thing ]
+--       , td []
+--         [ table []
+--           [ tr []
+--             <| confirm ::
+--               List.map
+--                 (td [] << List.singleton << userLink)
+--                 thing.confirmed
+--           ]
+--         ]
+--       ]
+-- 
+-- thingDescription
+--       span []
+--         [ span []
+--             <| List.map userLink
+--             <| Dict.keys bs.parties
+--         , text " have paid "
+--         , span []
+--             <| List.map (\p -> text <| p.paid ++ " of " ++ p.due ++ " due")
+--             <| Dict.values bs.parties
+--         , text " for "
+--         , text bs.object
+--         ]
 
-recordRow : Bool -> String -> Record.Record -> Html Msg
-recordRow itsme userId record =
-  let 
-    confirm =
-      if itsme
-        then if List.member userId record.confirmed
-        then text ""
-        else button [ onClick <| ConfirmRecord record.id ] [ text "confirm" ]
-      else text ""
-  in
-    tr []
-      [ td [] [ link ("/record/" ++ (toString record.id)) (date record.date) ]
-      , td [] [ recordDescription record ]
-      , td []
-        [ table []
-          [ tr []
-            <| confirm ::
-              List.map
-                (td [] << List.singleton << userLink)
-                record.confirmed
-          ]
-        ]
-      ]
-
-date : String -> String
-date
-  = Date.fromString
-  >> Result.withDefault (Date.fromTime 0)
-  >> Date.Format.format "%B %e %Y"
-
-recordDescription : Record.Record -> Html Msg
-recordDescription record =
-  case record.desc of
-    Blank -> span [] []
-    Debt debt ->
-      span []
-        [ userLink debt.debtor
-        , text " has borrowed "
-        , amount record.asset debt.amount
-        , text " from "
-        , userLink debt.creditor
-        ]
-    Payment pmt ->
-      span []
-        [ userLink pmt.payer
-        , text " has paid "
-        , amount record.asset pmt.amount
-        , span [] <|
-          if pmt.object /= ""
-          then [ text " for "
-          , text pmt.object
-          , text " on behalf of "
-          ]
-          else [ text " to " ]
-        , userLink pmt.payee
-        ]
-    BillSplit bs ->
-      span []
-        [ span []
-            <| List.map userLink
-            <| Dict.keys bs.parties
-        , text " have paid "
-        , span []
-            <| List.map (\p -> text <| p.paid ++ " of " ++ p.due ++ " due")
-            <| Dict.values bs.parties
-        , text " for "
-        , text bs.object
-        ]
-
-assetRow : User.Balance -> Html Msg
+assetRow : Balance -> Html Msg
 assetRow balance =
   tr []
     [ td [] [ text balance.asset ]
     , td [] [ text balance.amount ]
     , td [] [ text balance.limit ]
     ]
-
-recordView : User.User -> Record.Record -> Html Msg
-recordView me record =
-  div [ id "record" ]
-    [ h1 [] [ text <| toString record.id ]
-    , div [ id "date" ] [ text <| date record.date ]
-    , div [ id "description" ] [ recordDescription record ]
-    , div [ id "transactions" ]
-      [ table []
-        <| List.map
-            (tr [] << List.singleton << td [] << List.singleton << text)
-            record.transactions
-      ]
-    ]
-
-link : String -> String -> Html Msg
-link url display =
-  a
-    [ onWithOptions "click"
-      { stopPropagation = True, preventDefault = True }
-      (JD.succeed <| Navigate (prefix ++ url))
-    , href <| prefix ++ url
-    ] [ text display ]
-
-userLink : String -> Html Msg
-userLink userId = link ("/user/" ++ userId) userId
-
-amount : String -> String -> Html Msg
-amount asset amt =
-  span [ class "amount" ] [ text <| amt ++ " " ++ asset ]
-
-
--- HTTP
-fetchUser : String -> (Result Http.Error User.User -> Msg) -> Cmd Msg
-fetchUser id hmsg =
-  Http.send hmsg <|
-    Http.get ("/_/user/" ++ id) User.userDecoder
-
-fetchRecord : Int -> (Result Http.Error Record.Record -> Msg) -> Cmd Msg
-fetchRecord id hmsg =
-  Http.send hmsg <|
-    Http.get ("/_/record/" ++ (toString id)) Record.recordDecoder
-
-submitDebt : Model -> (Result Http.Error ServerResponse -> Msg) -> Cmd Msg
-submitDebt model hmsg =
-  let
-    body = Http.jsonBody <| Record.declareDebtEncoder model.declaringDebt
-  in
-    Http.send hmsg <|
-      Http.post "/_/record/debt" body serverResponseDecoder
-
-submitConfirmation : Int -> (Result Http.Error ServerResponse -> Msg) -> Cmd Msg
-submitConfirmation recordId hmsg =
-  Http.send hmsg <|
-    Http.post
-      ("/_/record/" ++ (toString recordId) ++ "/confirm")
-      Http.emptyBody
-      serverResponseDecoder
-
-errorFormat : Http.Error -> String
-errorFormat err =
-  case err of
-    Http.BadUrl u -> "bad url " ++ u
-    Http.Timeout -> "timeout"
-    Http.NetworkError -> "network error"
-    Http.BadStatus resp ->
-      resp.url ++ " returned " ++ (toString resp.status.code) ++ ": " ++ resp.body
-    Http.BadPayload x y -> "bad payload (" ++ x ++ ")"
-
-type alias ServerResponse =
-  { ok : Bool
-  }
-
-serverResponseDecoder : JD.Decoder ServerResponse
-serverResponseDecoder = JD.map ServerResponse <| JD.field "ok" JD.bool
-
-
--- HELPERS
-delay : Time -> msg -> Cmd msg
-delay time msg =
-  Process.sleep time
-    |> Task.andThen (always <| Task.succeed msg)
-    |> Task.perform identity
