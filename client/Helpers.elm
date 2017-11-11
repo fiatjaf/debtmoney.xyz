@@ -7,9 +7,25 @@ import Time exposing (Time)
 import Platform.Cmd as Cmd
 import Date
 import Date.Format
+import FormatNumber
+import FormatNumber.Locales exposing (usLocale)
+import Decimal exposing (Decimal)
 import GraphQL.Client.Http exposing (Error(..))
 import GraphQL.Request.Builder exposing (..)
+import Prelude exposing (..)
 
+
+type GlobalAction
+  = Navigate
+
+decimalize : String -> String -> String
+decimalize default n =
+  if n == "" then "" else String.toFloat n
+   |> Result.map (const n)
+   |> Result.withDefault default
+
+fixed2 : Decimal -> String
+fixed2 = Decimal.toFloat >> FormatNumber.format usLocale
 
 errorFormat : GraphQL.Client.Http.Error -> String
 errorFormat err =

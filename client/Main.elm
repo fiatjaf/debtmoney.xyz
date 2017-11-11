@@ -5,12 +5,14 @@ import Html exposing
   , input, select, option, header, nav
   , span, section, nav, img, label
   )
-import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput, onSubmit, onWithOptions)
+import Html.Lazy exposing (lazy, lazy2)
+import Html.Attributes exposing (class, href, value)
+import Html.Events exposing (onClick, onSubmit, onWithOptions)
 import Navigation exposing (Location)
 import Task exposing (Task)
 import Http
 import Dict
+import Array
 import Time exposing (Time)
 import Process
 import Json.Decode as JD
@@ -41,11 +43,14 @@ main =
 
 
 -- MODEL
+
+
 type alias Model =
   { me : User.User
   , route : Page
-  , user : User.User
-  , thing : Thing.Thing
+  , user : User
+  , thing : Thing
+  , newThing : NewThing
   , error : String
   , loading : String
   }
@@ -56,10 +61,11 @@ init flags location =
   let 
     (m, loadmyself) = update LoadMyself
       <| Model
-        User.defaultUser
+        defaultUser
         HomePage
-        User.defaultUser
-        Thing.defaultThing
+        defaultUser
+        defaultThing
+        defaultNewThing
         ""
         ""
     (nextm, handlelocation) = update (Navigate location.pathname) m
@@ -77,11 +83,9 @@ type Msg
   | GotMyself (Result GraphQL.Client.Http.Error User.User)
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
-  -- | ChangeDebtCreditor String
-  -- | ChangeDebtAsset String
-  -- | ChangeDebtAmount String
-  -- | SubmitDebtDeclaration
-  -- | GotDebtDeclarationResponse (Result Http.Error ServerResult)
+  | NewThingChange NewThingMsg
+  -- | SubmitNewThing
+  -- | GotDebtDeclarationResponse (Result GraphQL.Http.Error ServerResult)
   -- | ConfirmThing Int
   -- | GotThingConfirmationResponse (Result Http.Error ServerResult)
 
@@ -116,7 +120,6 @@ update msg model =
           else Navigation.newUrl pathname
       in
         nextm ! [ effect, updateurl ]
-          
     LoadMyself ->
       ( { model | loading = "Loading your profile..." }
       , request "me" userQuery
@@ -125,7 +128,14 @@ update msg model =
       )
     GotMyself result ->
       case result of
-        Ok user -> { model | me = user, loading = "" } ! []
+        Ok user ->
+          ( { model
+              | me = user
+              , loading = ""
+              , newThing = updateNewThing (EnsureParty user.id) model.newThing
+            }
+          , Cmd.none
+          )
         Err err ->
           ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
@@ -144,12 +154,10 @@ update msg model =
           ( { model | error = errorFormat err }
           , delay (Time.second * 4) EraseError
           )
-    -- ChangeDebtCreditor x ->
-    --   { model | declaringDebt = model.declaringDebt |> Thing.setCreditor x } ! []
-    -- ChangeDebtAsset x ->
-    --   { model | declaringDebt = model.declaringDebt |> Thing.setAsset x } ! []
-    -- ChangeDebtAmount x ->
-    --   { model | declaringDebt = model.declaringDebt |> Thing.setAmount x } ! []
+    NewThingChange change ->
+      ( { model | newThing = updateNewThing change model.newThing }
+      , Cmd.none
+      )
     -- SubmitDebtDeclaration ->
     --   ( { model | loading = "Submitting debt declaration..." }
     --   , submitDebt model GotDebtDeclarationResponse
@@ -175,12 +183,16 @@ update msg model =
 
 
 -- SUBSCRIPTIONS
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.none
 
 
 -- VIEW
+
+
 view : Model -> Html Msg
 view model =
   div []
@@ -196,110 +208,34 @@ view model =
           ]
         ]
       ]
-    , div []
-      [ if model.error /= ""
-        then div [ id "error", class "notification is-danger" ] [ text <| model.error ]
-        else if model.loading /= ""
-        then div [ id "loading", class "pageloader" ]
-          [ div [ class "spinner" ] []
-          , div [ class "title" ] [ text <| model.loading ]
-          ]
-        else div [] []
+    , div [ class "section" ]
+      [ div [ class "container" ]
+        [ if model.error /= ""
+          then div [ class "error notification is-danger" ] [ text <| model.error ]
+          else if model.loading /= ""
+          then div [ class "pageloader" ]
+            [ div [ class "spinner" ] []
+            , div [ class "title" ] [ text model.loading ]
+            ]
+          else div [] []
+        ]
       ]
     , section [ class "section" ]
-      [ case model.route of
-        HomePage -> userView model.me
-        ThingPage r -> thingView model.thing
-        UserPage u -> userView model.user
-        NotFound -> div [] [ text "this page doesn't exists" ]
-      ]
-    ]
-
-
-userView : User -> Html Msg
-userView user =
-  div [ id "user" ]
-    [ h1 []
-      [ text <| user.id ++ "'s" ++ " profile"
-      ]
-    , div []
-      [ h2 [] [ text "operations:" ]
-      , table [ class "table is-hoverable is-fullwidth" ]
-        [ thead []
-          [ tr []
-            [ th [] [ text "date" ]
-            , th [] [ text "description" ]
-            , th [] [ text "confirmed" ]
-            ]
-          ]
-        , tbody [] []
-          -- <| List.map (thingRow user.id) user.things
+      [ div [ class "container" ]
+        [ case model.route of
+          HomePage -> lazy userView model.me
+          ThingPage r -> lazy thingView model.thing
+          UserPage u -> lazy userView model.user
+          NotFound -> div [] [ text "this page doesn't exists" ]
         ]
       ]
-    , div []
-      [ h2 [] [ text "address:" ]
-      , p [] [ text user.address]
-      ]
-    , div []
-      [ h2 [] [ text "balances:" ]
-      , table [ class "table is-striped is-fullwidth" ]
-        [ thead []
-          [ tr []
-            [ th [] [ text "asset" ]
-            , th [] [ text "amount" ]
-            , th [] [ text "trust limit" ]
-            ]
-          ]
-        , tbody []
-          <| List.map assetRow user.balances
+    , section [ class "section" ]
+      [ div [ class "container" ]
+        [ Html.map NewThingChange ( lazy viewNewThing model.newThing )
         ]
       ]
     ]
 
---     , if itsme then div [ id "declaringdebt" ]
---       [ h2 [] [ text "Declare a debt:" ]
---       , formField "Creditor:"
---         <| input
---           [ type_ "text"
---           , class "input"
---           , placeholder "name@gmail.com"
---           , onInput ChangeDebtCreditor
---           ] []
---       , formField "Currency:"
---         <| input
---           [ type_ "text"
---           , class "input"
---           , placeholder "USD"
---           , onInput ChangeDebtAsset
---           ] []
---       , formField "Amount"
---         <| input
---           [ type_ "text"
---           , class "input"
---           , placeholder "37"
---           , onInput ChangeDebtAmount
---           ] []
---       , formField ""
---         <| button
---           [ onClick SubmitDebtDeclaration
---           , class "button is-primary"
---           ] [ text "submit" ]
---       ]
---       else text ""
---     ]
--- 
--- formField : String -> Html Msg -> Html Msg
--- formField labeltext inputelem =
---   div [ class "field is-horizontal" ]
---     [ div [ class "field-label is-normal" ] [ label [ class "label" ] [ text labeltext ] ]
---     , div [ class "field-body" ]
---       [ div [ class "field is-narrow" ]
---         [ div [ class "control" ] [ inputelem ]
---         ]
---       ]
---     ]
---   
--- 
 -- thingRow : Bool -> String -> Thing.Thing -> Html Msg
 -- thingRow itsme userId thing =
 --   let 
@@ -336,11 +272,3 @@ userView user =
 --         , text " for "
 --         , text bs.object
 --         ]
-
-assetRow : Balance -> Html Msg
-assetRow balance =
-  tr []
-    [ td [] [ text balance.asset ]
-    , td [] [ text balance.amount ]
-    , td [] [ text balance.limit ]
-    ]
