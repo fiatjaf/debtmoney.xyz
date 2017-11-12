@@ -21,7 +21,7 @@ type GlobalAction
 decimalize : String -> String -> String
 decimalize default n =
   if n == "" then "" else String.toFloat n
-   |> Result.map (const n)
+   |> Result.map (\f -> if f < 0 then default else n)
    |> Result.withDefault default
 
 fixed2 : Decimal -> String

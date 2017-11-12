@@ -8,14 +8,15 @@ import Html exposing
   , span, section, nav, img, label
   )
 import Html.Keyed as Keyed
-import Html.Lazy exposing (lazy, lazy2)
+import Html.Lazy exposing (lazy, lazy2, lazy3)
 import Html.Attributes exposing (class, value, colspan)
 import Html.Events exposing (onInput)
 import Array exposing (Array)
-import Decimal exposing (Decimal)
+import Decimal exposing (Decimal, zero, add, mul, fastdiv, sub, eq)
 import GraphQL.Request.Builder exposing (..)
 import GraphQL.Request.Builder.Arg as Arg
 import GraphQL.Request.Builder.Variable as Var
+import Prelude exposing (..)
 
 import Helpers exposing (..)
 
@@ -105,25 +106,6 @@ type alias NewThing =
 
 defaultNewThing = NewThing "now" "a splitted bill" "" "" Array.empty
 
-sumTotal : (Party -> String) -> NewThing -> Decimal
-sumTotal getter newthing =
-  newthing.parties
-    |> Array.map (getter >> Decimal.fromString >> Maybe.withDefault Decimal.zero)
-    |> Array.foldl Decimal.add Decimal.zero
-
-sumPaid = sumTotal .paid >> fixed2
-sumDue = sumTotal .due >> fixed2
-
-totalDue : NewThing -> Decimal
-totalDue newthing =
-  case (
-    Decimal.fromString newthing.total
-      |> Maybe.andThen
-        (\dec -> if Decimal.eq dec Decimal.zero then Nothing else Just dec)
-  ) of
-    Nothing -> sumTotal .due newthing
-    Just dec -> sumTotal .due newthing
-  
 
 -- UPDATE
 
@@ -145,7 +127,7 @@ type UpdatePartyMsg
 updateNewThing : NewThingMsg -> NewThing -> NewThing
 updateNewThing change vars =
   case change of
-    SetTotal value -> { vars | total = value }
+    SetTotal value -> { vars | total = decimalize vars.total value }
     SetName name -> { vars | name = name }
     SetAsset asset -> { vars | asset = asset }
     AddParty user_id due paid ->
@@ -179,7 +161,6 @@ updateNewThing change vars =
                   SetPartyPaid paid -> { party | paid = decimalize party.paid paid }
                 )
           }
-                
     RemoveParty index ->
       let
         before = Array.slice 0 index vars.parties
@@ -202,7 +183,40 @@ thingView thing =
 
 viewNewThing : NewThing -> Html NewThingMsg
 viewNewThing newThing =
-  table [ class "newthing" ]
+  let
+    sum getter =
+      newThing.parties
+        |> Array.map (getter >> Decimal.fromString >> Maybe.withDefault zero)
+        |> Array.foldl Decimal.add zero
+    
+    setduesum = newThing.parties
+      |> Array.filter (.due >> (/=) "")
+      |> Array.foldl
+        ( .due
+        >> Decimal.fromString
+        >> Maybe.withDefault zero
+        >> Decimal.add
+        )
+        zero
+    duetotal = Decimal.fromString newThing.total |> Maybe.withDefault zero
+    actualtotal = if eq duetotal zero then setduesum else duetotal
+
+    parties_n = Array.length newThing.parties
+    setdue_n = newThing.parties
+      |> Array.filter (.due >> (/=) "")
+      |> Array.foldl ((+) << const 1) 0
+    unsetdue_n = parties_n - setdue_n
+
+    unsetduedefault = Debug.log "unsetduedefault" <|
+      if duetotal == zero then "" else
+        case Decimal.fastdiv
+          (Decimal.sub duetotal setduesum)
+          (Decimal.fromInt unsetdue_n)
+        of
+          Nothing -> ""
+          Just v -> fixed2 v
+
+  in table [ class "newthing" ]
     [ thead []
       [ tr []
         [ th [] [ text "identifier" ]
@@ -218,68 +232,94 @@ viewNewThing newThing =
           ]
         , td [ class "due-total" ]
           [ input
-            [ value <| sumDue newThing
+            [ value <|
+              if eq duetotal zero then fixed2 setduesum
+              else newThing.total
             , onInput SetTotal
             ] []
           ]
-        , td [ class "paid-total" ] [ text <| sumPaid newThing ]
+        , td [ class "paid-total" ] [ text <| fixed2 <| sum .paid ]
         ]
       ]
     , tbody []
       <| List.indexedMap (\i -> Html.map (UpdateParty i))
-      <| List.indexedMap (lazy2 newThingPartyRow)
+      <| List.indexedMap (lazy3 viewNewThingPartyRow unsetduedefault)
       <| flip List.append [ defaultParty ]
       <| Array.toList newThing.parties
     , tfoot []
       [ tr []
         [ td [ class "summary", colspan 3 ] <|
-          case Decimal.compare
-              ( sumTotal .paid newThing )
-              ( totalDue newThing ) of
+          if setdue_n == parties_n
+            && newThing.total /= ""
+            && (not <| eq
+              (sum .due)
+              (duetotal)
+            )
+          then
+            [ text "mismatched values. the total due is set to "
+            , strong []
+              [ text <| fixed2 duetotal
+              ]
+            , text " while the sum of all dues is "
+            , strong []
+              [ text <| fixed2 <| sum .due
+              ]
+            ]
+          else if eq actualtotal zero then
+            [ text <| "write how much each person was due to pay and "
+                   ++ "how much each actually paid."
+            ]
+          else case Decimal.compare
+              ( sum .paid )
+              ( actualtotal ) of
             EQ ->
-              [ strong [] [ text "." ]
-              , text "ok."
+              [ text "everything ok."
               ]
             LT ->
-              [ strong [] [ text ". " ]
-              , text
-                <| fixed2
-                <| Decimal.sub
-                  ( totalDue newThing )
-                  ( sumTotal .paid newThing )
-              , text "left to pay."
+              [ strong []
+                [ text <|
+                  fixed2
+                  <| Decimal.sub
+                    ( actualtotal )
+                    ( sum .paid )
+                ]
+              , text " left to pay."
               ]
             GT ->
-              [ strong [] [ text ". " ]
-              , text
-                <| fixed2
-                <| Decimal.sub
-                  ( sumTotal .paid newThing )
-                  ( totalDue newThing )
-              , text "over."
+              [ strong []
+                [ text <|
+                  fixed2
+                  <| Decimal.sub
+                    ( sum .paid )
+                    ( actualtotal )
+                ]
+              , text " overpaid."
               ]
         ]
       ]
     ]
 
-newThingPartyRow : Int -> Party -> Html UpdatePartyMsg
-newThingPartyRow index party =
+viewNewThingPartyRow : String -> Int -> Party -> Html UpdatePartyMsg
+viewNewThingPartyRow duedefault index party =
   tr []
     [ td [ class "user_id" ]
       [ input
-        [ onInput <| SetPartyUser
+        [ onInput SetPartyUser
         , value party.user_id
         ] []
       ]
     , td [ class "due" ]
       [ input
-        [ onInput <| SetPartyDue
-        , value party.due
+        [ onInput SetPartyDue
+        , value <|
+          if party == defaultParty then ""
+          else if party.due == "" then duedefault
+          else party.due
         ] []
       ]
     , td [ class "paid" ]
       [ input
-        [ onInput <| SetPartyPaid
+        [ onInput SetPartyPaid
         , value party.paid
         ] []
       ]
