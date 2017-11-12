@@ -47,6 +47,7 @@ type alias Model =
   , thing : Thing
   , newThing : NewThing
   , error : String
+  , notification : String
   , loading : String
   }
 
@@ -63,6 +64,7 @@ init flags location =
         defaultNewThing
         ""
         ""
+        ""
     (nextm, handlelocation) = update (Navigate location.pathname) m
   in
     nextm ! [ loadmyself, handlelocation ]
@@ -72,22 +74,23 @@ init flags location =
 
 
 type Msg
-  = EraseError
+  = EraseNotifications
   | Navigate String
   | LoadMyself
   | GotMyself (Result GraphQL.Client.Http.Error User.User)
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
-  | NewThingChange NewThingMsg
+  | NewThingAction NewThingMsg
   | GotNewThingResponse (Result GraphQL.Client.Http.Error Thing)
-  -- | ConfirmThing Int
-  -- | GotThingConfirmationResponse (Result Http.Error ServerResult)
+  | ThingAction String ThingMsg
+  | UserAction String UserMsg
+  | GotThingConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    EraseError ->
-      ( { model | error = "", loading = "" }
+    EraseNotifications ->
+      ( { model | error = "", loading = "", notification = "" }
       , Cmd.none
       )
     Navigate pathname ->
@@ -116,9 +119,12 @@ update msg model =
         nextm ! [ effect, updateurl ]
     LoadMyself ->
       ( { model | loading = "Loading your profile..." }
-      , request "me" userQuery
-        |> sendQuery "/_graphql"
-        |> Task.attempt GotMyself
+      , Cmd.batch
+        [ request "me" userQuery
+          |> sendQuery "/_graphql"
+          |> Task.attempt GotMyself
+        , delay (Time.second * 5) EraseNotifications
+        ]
       )
     GotMyself result ->
       case result of
@@ -131,24 +137,24 @@ update msg model =
           , Cmd.none
           )
         Err err ->
-          ( { model | error = errorFormat err }
-          , delay (Time.second * 4) EraseError
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 5) EraseNotifications
           )
     GotUser result ->
       case result of
         Ok user -> { model | user = user, loading = "" } ! []
         Err err ->
-          ( { model | error = errorFormat err }
-          , delay (Time.second * 4) EraseError
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 5) EraseNotifications
           )
     GotThing result ->
       case result of
         Ok thing -> { model | thing = thing, loading = "" } ! []
         Err err ->
-          ( { model | error = errorFormat err }
-          , delay (Time.second * 4) EraseError
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 5) EraseNotifications
           )
-    NewThingChange change ->
+    NewThingAction change ->
       case change of
         Submit -> 
           ( { model | loading = "Submitting transaction..." }
@@ -162,22 +168,34 @@ update msg model =
           )
     GotNewThingResponse result ->
       case result of
+        Ok thing -> update LoadMyself
+          { model
+            | loading = ""
+            , notification = "Saved transaction with id " ++ thing.id
+            , newThing = defaultNewThing
+          }
+        Err err ->
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 5) EraseNotifications
+          )
+    ThingAction thingId msg ->
+      case msg of
+        ConfirmThing ->
+          ( { model | loading = "Confirming transaction..." }
+          , request thingId confirmThingMutation
+            |> sendMutation "/_graphql"
+            |> Task.attempt GotThingConfirmationResponse
+          )
+    UserAction userId msg ->
+      case msg of
+        UserThingAction thingId msg -> update (ThingAction thingId msg) model
+    GotThingConfirmationResponse result ->
+      case result of
         Ok thing -> update LoadMyself { model | loading = "" }
         Err err ->
           ( { model | error = errorFormat err, loading = "" }
-          , delay (Time.second * 4) EraseError
+          , delay (Time.second * 5) EraseNotifications
           )
-    -- ConfirmThing thingId ->
-    --   ( model
-    --   , submitConfirmation thingId GotThingConfirmationResponse
-    --   )
-    -- GotThingConfirmationResponse result ->
-    --   case result of
-    --     Ok thing -> update LoadMyself { model | loading = "" }
-    --     Err err ->
-    --       ( { model | error = errorFormat err }
-    --       , delay (Time.second * 4) EraseError
-    --       )
 
 
 -- SUBSCRIPTIONS
@@ -207,66 +225,35 @@ view model =
         ]
       ]
     , div [ class "section" ]
-      [ div [ class "container" ]
-        [ if model.error /= ""
-          then div [ class "error notification is-danger" ] [ text <| model.error ]
-          else if model.loading /= ""
-          then div [ class "pageloader" ]
-            [ div [ class "spinner" ] []
-            , div [ class "title" ] [ text model.loading ]
-            ]
-          else div [] []
-        ]
+      [ if model.error == "" then text ""
+        else div [ class "notification is-danger" ] [ text <| model.error ]
+      , if model.notification == "" then text ""
+        else div [ class "notification is-success" ] [ text <| model.notification ]
+      , if model.loading == "" then text ""
+        else div [ class "pageloader" ]
+          [ div [ class "spinner" ] []
+          , div [ class "title" ] [ text model.loading ]
+          ]
       ]
     , section [ class "section" ]
       [ div [ class "container" ]
         [ case model.route of
-          HomePage -> lazy userView model.me
-          ThingPage r -> lazy thingView model.thing
-          UserPage u -> lazy userView model.user
-          NotFound -> div [] [ text "this page doesn't exists" ]
+          HomePage ->
+            Html.map (UserAction model.me.id)
+              <| lazy2 viewUser model.me model.me
+          ThingPage r ->
+            Html.map (ThingAction model.thing.id)
+              <| lazy viewThing model.thing
+          UserPage u ->
+            Html.map (UserAction model.user.id)
+              <| lazy2 viewUser model.me model.user
+          NotFound ->
+            div [] [ text "this page doesn't exist" ]
         ]
       ]
     , section [ class "section" ]
       [ div [ class "container" ]
-        [ Html.map NewThingChange ( lazy viewNewThing model.newThing )
+        [ Html.map NewThingAction ( lazy viewNewThing model.newThing )
         ]
       ]
     ]
-
--- thingRow : Bool -> String -> Thing.Thing -> Html Msg
--- thingRow itsme userId thing =
---   let 
---     confirm =
---       if itsme
---         then if List.member userId thing.confirmed
---         then text ""
---         else button [ onClick <| ConfirmThing thing.id ] [ text "confirm" ]
---       else text ""
---   in
---     tr []
---       [ td [] [ link ("/thing/" ++ (toString thing.id)) (date thing.date) ]
---       , td [] [ thingDescription thing ]
---       , td []
---         [ table []
---           [ tr []
---             <| confirm ::
---               List.map
---                 (td [] << List.singleton << userLink)
---                 thing.confirmed
---           ]
---         ]
---       ]
--- 
--- thingDescription
---       span []
---         [ span []
---             <| List.map userLink
---             <| Dict.keys bs.parties
---         , text " have paid "
---         , span []
---             <| List.map (\p -> text <| p.paid ++ " of " ++ p.due ++ " due")
---             <| Dict.values bs.parties
---         , text " for "
---         , text bs.object
---         ]

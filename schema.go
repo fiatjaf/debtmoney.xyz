@@ -93,8 +93,8 @@ var userType = graphql.NewObject(
 					err = pg.Select(&user.Things, `
 SELECT things.* FROM things
 INNER JOIN parties ON things.id = parties.thing_id
-WHERE parties.thing_id = $1
-ORDER BY actual_date
+WHERE parties.user_id = $1
+ORDER BY actual_date DESC
                     `, user.Id)
 					if err != nil {
 						log.Error().Str("user", user.Id).Err(err).
@@ -210,7 +210,7 @@ var mutations = graphql.Fields{
 				Msg("creating thing")
 
 			if thingId == "" {
-				thingId = cuid.New()
+				thingId = cuid.Slug()
 			}
 
 			thing, err := insertThing(thingId, date, userId, name, asset, parties)

@@ -26,21 +26,29 @@ type Thing struct {
 	Peers map[string]User `json:"-"`
 }
 
-func (thing Thing) fillParties() (err error) {
+func (thing *Thing) fillParties() (err error) {
 	if thing.Parties != nil && len(thing.Parties) > 0 {
 		return nil
 	}
 
 	thing.Parties = []Party{}
-	err = pg.Select(&thing.Parties, `
-SELECT parties.*, users.* FROM parties
-INNER JOIN users ON users.id = parties.thing_id
-WHERE thing_id = $1
-                    `, thing.Id)
+	err = pg.Select(
+		&thing.Parties, `
+SELECT
+  thing_id, account_name, paid, due, added_by, confirmed,
+  coalesce(parties.user_id, '') AS user_id,
+  coalesce(parties.note, '') AS note,
+  coalesce(users.id, '') AS id,
+  coalesce(users.address, '') AS address
+FROM parties
+LEFT JOIN users ON users.id = parties.user_id
+WHERE thing_id = $1;
+        `, thing.Id)
 	if err != nil {
 		log.Error().Str("thing", thing.Id).Err(err).
 			Msg("on thing parties query")
 	}
+
 	return err
 }
 
@@ -135,8 +143,8 @@ WITH upd AS (
   WHERE thing_id = $1 AND user_id = $2
   RETURNING thing_id
 )
-SELECT *, publishable FROM things
-WHERE id = upd
+SELECT *, things.publishable FROM things
+WHERE id = (SELECT thing_id FROM upd)
     `, id, userId)
 	if err != nil {
 		log.Error().Err(err).Msg("error appending confirmation")

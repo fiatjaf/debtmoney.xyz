@@ -7,6 +7,7 @@ import Html exposing
   , input, select, option, header, nav
   , span, section, nav, img, label
   )
+import Html.Lazy exposing (lazy, lazy2, lazy3)
 import Html.Attributes exposing (class)
 import GraphQL.Request.Builder exposing (..)
 import GraphQL.Request.Builder.Arg as Arg
@@ -54,28 +55,29 @@ balanceSpec = object Balance
   |> with ( field "limit" [] string )
 
 
+-- UPDATE
+
+type UserMsg
+  = UserThingAction String ThingMsg
+
+
 -- VIEW
 
 
-userView : User -> Html msg
-userView user =
+viewUser : User -> User -> Html UserMsg
+viewUser me user =
   div [ class "user" ]
     [ h1 []
       [ text <| user.id ++ "'s" ++ " profile"
       ]
     , div []
-      [ h2 [] [ text "operations:" ]
-      , table [ class "table is-hoverable is-fullwidth" ]
-        [ thead []
-          [ tr []
-            [ th [] [ text "date" ]
-            , th [] [ text "description" ]
-            , th [] [ text "confirmed" ]
-            ]
-          ]
-        , tbody [] []
-          -- <| List.map (thingRow user.id) user.things
-        ]
+      [ h2 [] [ text "transactions:" ]
+      , div [ class "things" ]
+          <| List.map
+            (\t -> Html.map (UserThingAction t.id)
+              <| lazy3 viewThingCard me.id user.id t
+            )
+          <| user.things
       ]
     , div []
       [ h2 [] [ text "address:" ]
@@ -96,7 +98,6 @@ userView user =
         ]
       ]
     ]
-
 
 assetRow : Balance -> Html msg
 assetRow balance =

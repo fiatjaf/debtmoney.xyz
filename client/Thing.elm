@@ -9,7 +9,7 @@ import Html exposing
   )
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2, lazy3)
-import Html.Attributes exposing (class, value, colspan)
+import Html.Attributes exposing (class, value, colspan, href)
 import Html.Events exposing (onInput, onClick, on)
 import Maybe exposing (withDefault)
 import Json.Decode as J
@@ -20,7 +20,7 @@ import GraphQL.Request.Builder.Arg as Arg
 import GraphQL.Request.Builder.Variable as Var
 import Prelude exposing (..)
 import String exposing (trim)
-import String.Extra exposing (nonEmpty)
+import String.Extra exposing (nonEmpty, isBlank)
 
 import Helpers exposing (..)
 import Data.Currencies
@@ -76,7 +76,7 @@ partySpec = object Party
   |> with ( field "account_name" [] string )
   |> with ( field "due" [] string )
   |> with ( field "paid" [] string )
-  |> with ( field "note" [] string )
+  |> with ( field "note" [] (map (withDefault "") (nullable string)) )
   |> with ( field "added_by" [] string )
   |> with ( field "confirmed" [] bool )
   |> withLocalConstant defaultParty.v
@@ -94,7 +94,7 @@ newThingMutation =
         )
       , ( "name"
         , Arg.variable
-          <| Var.optional "name" (.name >> trim >> nonEmpty) Var.string "~"
+          <| Var.optional "name" (.name >> trim >> nonEmpty) Var.string " "
         )
       , ( "asset", Arg.variable <| Var.required "asset" .asset Var.string )
       , ( "parties", Arg.variable <| Var.required "parties" (.parties >> Array.toList)
@@ -107,6 +107,16 @@ newThingMutation =
             )
           )
         )
+      ]
+      thingSpec
+    )
+    |> mutationDocument
+
+confirmThingMutation : Document Mutation Thing String
+confirmThingMutation =
+  extract
+    ( field "confirmThing"
+      [ ( "thing_id", Arg.variable <| Var.required "thing_id" identity Var.string )
       ]
       thingSpec
     )
@@ -129,6 +139,8 @@ defaultNewThing = NewThing "now" "a splitted bill" "" "" Array.empty
 
 -- UPDATE
 
+type ThingMsg
+  = ConfirmThing
 
 type NewThingMsg
   = SetTotal String
@@ -193,8 +205,8 @@ updateNewThing change vars =
 -- VIEW
 
 
-thingView : Thing -> Html msg
-thingView thing =
+viewThing : Thing -> Html msg
+viewThing thing =
   div [ class "thing" ]
     [ h1 [ class "title is-4" ] [ text thing.id ]
     , div [ class "date" ] [ text <| date thing.actual_date ]
@@ -202,6 +214,59 @@ thingView thing =
     , div [ class "txn" ] [ text thing.txn ]
     ]
 
+
+viewThingCard : String -> String -> Thing -> Html ThingMsg
+viewThingCard myId userId thing =
+  let 
+    confirm =
+      if
+        List.filter
+          (\p ->
+            (p.user_id == Just myId) && p.confirmed
+          ) thing.parties
+        |> List.length
+        |> (>) 0
+      then text ""
+      else button [ onClick <| ConfirmThing ] [ text "confirm" ]
+  in
+    div [ class "card" ]
+      [ div [ class "card-header" ]
+        [ p [ class "card-header-title" ]
+          [ text <| if isBlank thing.name then thing.id else thing.name 
+          ]
+        ]
+      , div [ class "card-content" ]
+        [ table []
+          [ thead []
+            [ tr []
+              [ th [] [ text "person" ]
+              , th [] [ text "due" ]
+              , th [] [ text "paid" ]
+              , th [] [ text "confirmed" ]
+              ]
+            ]
+          , tbody []
+            <| List.map partyRow thing.parties
+          ]
+        ]
+      , div [ class "card-footer" ]
+        [ a [ class "card-footer-item" ] [ text "Edit" ]
+        , a [ class "card-footer-item" ] [ text "Confirm" ]
+        ]
+      ]
+
+partyRow : Party -> Html msg
+partyRow party =
+  tr []
+    [ td []
+      [ case party.user_id of
+        Nothing -> text party.account_name
+        Just user_id -> a [] [ text user_id ]
+      ]
+    , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.due ]
+    , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.paid ]
+    , td [] [ text <| if party.confirmed then "yes" else "no" ]
+    ]
 
 viewNewThing : NewThing -> Html NewThingMsg
 viewNewThing newThing =
