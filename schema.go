@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/graphql-go/graphql"
+	"github.com/lucsky/cuid"
 )
 
 var queries = graphql.Fields{
@@ -93,7 +94,7 @@ var userType = graphql.NewObject(
 SELECT things.* FROM things
 INNER JOIN parties ON things.id = parties.thing_id
 WHERE parties.thing_id = $1
-ORDER BY thing_date
+ORDER BY actual_date
                     `, user.Id)
 					if err != nil {
 						log.Error().Str("user", user.Id).Err(err).
@@ -112,12 +113,13 @@ var thingType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "ThingType",
 		Fields: graphql.Fields{
-			"id":         &graphql.Field{Type: graphql.String},
-			"created_at": &graphql.Field{Type: graphql.String},
-			"thing_date": &graphql.Field{Type: graphql.String},
-			"name":       &graphql.Field{Type: graphql.String},
-			"asset":      &graphql.Field{Type: graphql.String},
-			"txn":        &graphql.Field{Type: graphql.String},
+			"id":          &graphql.Field{Type: graphql.String},
+			"created_at":  &graphql.Field{Type: graphql.String},
+			"actual_date": &graphql.Field{Type: graphql.String},
+			"created_by":  &graphql.Field{Type: graphql.String},
+			"name":        &graphql.Field{Type: graphql.String},
+			"asset":       &graphql.Field{Type: graphql.String},
+			"txn":         &graphql.Field{Type: graphql.String},
 			"parties": &graphql.Field{
 				Type: graphql.NewList(partyType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -134,12 +136,25 @@ var partyType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "PartyType",
 		Fields: graphql.Fields{
-			"user_id":    &graphql.Field{Type: graphql.String},
-			"thing_id":   &graphql.Field{Type: graphql.String},
-			"paid":       &graphql.Field{Type: graphql.String},
-			"due":        &graphql.Field{Type: graphql.String},
-			"confirmed":  &graphql.Field{Type: graphql.Boolean},
-			"registered": &graphql.Field{Type: graphql.Boolean},
+			"user_id":      &graphql.Field{Type: graphql.String},
+			"account_name": &graphql.Field{Type: graphql.String},
+			"thing_id":     &graphql.Field{Type: graphql.String},
+			"paid":         &graphql.Field{Type: graphql.String},
+			"due":          &graphql.Field{Type: graphql.String},
+			"note":         &graphql.Field{Type: graphql.String},
+			"added_by":     &graphql.Field{Type: graphql.String},
+			"confirmed":    &graphql.Field{Type: graphql.Boolean},
+		},
+	},
+)
+
+var inputPartyType = graphql.NewInputObject(
+	graphql.InputObjectConfig{
+		Name: "InputPartyType",
+		Fields: graphql.InputObjectConfigFieldMap{
+			"account": &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"paid":    &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"due":     &graphql.InputObjectFieldConfig{Type: graphql.String},
 		},
 	},
 )
@@ -157,40 +172,53 @@ var balanceType = graphql.NewObject(
 
 var mutations = graphql.Fields{
 	"createThing": &graphql.Field{
-		Type: resultType,
+		Type: thingType,
 		Args: graphql.FieldConfigArgument{
-			"thing_date": &graphql.ArgumentConfig{Type: graphql.String},
-			"name":       &graphql.ArgumentConfig{Type: graphql.String},
+			"id":   &graphql.ArgumentConfig{Type: graphql.String},
+			"date": &graphql.ArgumentConfig{Type: graphql.String},
+			"name": &graphql.ArgumentConfig{Type: graphql.String},
 			"asset": &graphql.ArgumentConfig{
 				Type: graphql.NewNonNull(graphql.String),
 			},
 			"parties": &graphql.ArgumentConfig{
 				Type: graphql.NewNonNull(graphql.NewList(
-					graphql.NewNonNull(partyType),
+					graphql.NewNonNull(inputPartyType),
 				)),
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			userId, ok := p.Context.Value("userId").(string)
 			if ok {
-				return ensureUser(userId)
+				_, err := ensureUser(userId)
+				if err != nil {
+					return nil, err
+				}
 			}
 
-			thingDate := p.Args["thing_date"].(string)
-			name := p.Args["name"].(string)
+			thingId, _ := p.Args["id"].(string)
+			date, _ := p.Args["date"].(string)
+			name, _ := p.Args["name"].(string)
 			asset := p.Args["asset"].(string)
 			parties := p.Args["parties"].([]interface{})
 
 			log.Info().
-				Str("date", thingDate).
+				Str("id", thingId).
+				Str("date", date).
 				Str("name", name).
 				Str("asset", asset).
 				Int("nparties", len(parties)).
-				Msg("thing creation")
+				Msg("creating thing")
 
-			var thing Thing
+			if thingId == "" {
+				thingId = cuid.New()
+			}
 
-			return Result{thing.Id}, nil
+			thing, err := insertThing(thingId, date, userId, name, asset, parties)
+			if err != nil {
+				log.Warn().Err(err).Msg("on insertThing")
+				return nil, err
+			}
+			return thing, nil
 		},
 	},
 	"confirmThing": &graphql.Field{
@@ -201,7 +229,10 @@ var mutations = graphql.Fields{
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			userId, ok := p.Context.Value("userId").(string)
 			if ok {
-				return ensureUser(userId)
+				_, err := ensureUser(userId)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			thingId := p.Args["thing_id"].(string)

@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -11,7 +13,8 @@ import (
 type Thing struct {
 	Id          string    `json:"id"           db:"id"`
 	CreatedAt   time.Time `json:"created_at"   db:"created_at"`
-	ThingDate   time.Time `json:"thing_date"   db:"thing_date"`
+	ActualDate  time.Time `json:"actual_date"  db:"actual_date"`
+	CreatedBy   string    `json:"created_by"   db:"created_by"`
 	Name        string    `json:"name"         db:"name"`
 	Asset       string    `json:"asset"        db:"asset"`
 	Transaction string    `json:"txn"          db:"txn"`
@@ -23,22 +26,101 @@ type Thing struct {
 	Peers map[string]User `json:"-"`
 }
 
+func (thing Thing) fillParties() (err error) {
+	if thing.Parties != nil && len(thing.Parties) > 0 {
+		return nil
+	}
+
+	thing.Parties = []Party{}
+	err = pg.Select(&thing.Parties, `
+SELECT parties.*, users.* FROM parties
+INNER JOIN users ON users.id = parties.thing_id
+WHERE thing_id = $1
+                    `, thing.Id)
+	if err != nil {
+		log.Error().Str("thing", thing.Id).Err(err).
+			Msg("on thing parties query")
+	}
+	return err
+}
+
 type Party struct {
-	UserId    string          `json:"user_id"    db:"user_id"`
-	ThingId   string          `json:"thing_id"   db:"thing_id"`
-	Paid      decimal.Decimal `json:"paid"       db:"paid"`
-	Due       decimal.Decimal `json:"due"        db:"due"`
-	Confirmed bool            `json:"confirmed"  db:"confirmed"`
+	ThingId     string          `json:"thing_id"     db:"thing_id"`
+	UserId      string          `json:"user_id"      db:"user_id"`
+	AccountName string          `json:"account_name" db:"account_name"`
+	Paid        decimal.Decimal `json:"paid"         db:"paid"`
+	Due         decimal.Decimal `json:"due"          db:"due"`
+	Note        string          `json:"note"         db:"note"`
+	AddedBy     string          `json:"added_by"     db:"added_by"`
+	Confirmed   bool            `json:"confirmed"    db:"confirmed"`
 
-	User
-
-	Registered bool `json:"registered" db:"registered"`
+	User `json:"-"`
 
 	// fields to store working values
-	valueAssigned decimal.Decimal
+	valueAssigned decimal.Decimal `json:"-"`
 }
 
 func (p Party) Balance() decimal.Decimal { return p.Paid.Sub(p.Due).Abs() }
+
+func insertThing(
+	id, date, user_id, name, asset string,
+	parties []interface{},
+) (Thing, error) {
+	log.Info().Str("thing", id).Msg("inserting")
+	var thing Thing
+	var err error
+
+	txn, err := pg.Beginx()
+	if err != nil {
+		return thing, err
+	}
+	defer txn.Rollback()
+
+	err = txn.Get(&thing, `
+INSERT INTO things (id, actual_date, name, asset, created_by)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *
+    `, id, date, name, asset, user_id)
+	if err != nil {
+		return thing, err
+	}
+
+	partiesSQL := make([]string, len(parties))
+	partiesValues := make([]interface{}, len(parties)*6)
+	for i, iparty := range parties {
+		party := iparty.(map[string]interface{})
+		partiesSQL[i] = fmt.Sprintf(`
+(
+  (SELECT id FROM users WHERE id = $%d),
+  $%d,
+  $%d, $%d, $%d, $%d
+)
+        `, i*6+1, i*6+2, i*6+3, i*6+4, i*6+5, i*6+6)
+		partiesValues[(i*6)+0] = party["account"]
+		partiesValues[(i*6)+1] = party["account"]
+		partiesValues[(i*6)+2] = id
+		partiesValues[(i*6)+3] = party["due"]
+		partiesValues[(i*6)+4] = party["paid"]
+		partiesValues[(i*6)+5] = user_id
+	}
+
+	err = txn.Select(&thing.Parties, `
+INSERT INTO parties (user_id, account_name, thing_id, due, paid, added_by)
+VALUES `+strings.Join(partiesSQL, ",")+`
+RETURNING
+  CASE WHEN user_id IS NULL THEN '' ELSE user_id END,
+  thing_id, account_name, due, paid, note, added_by, confirmed
+		`, partiesValues...)
+	if err != nil {
+		return thing, err
+	}
+
+	err = txn.Commit()
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to commit user to postgres")
+	}
+	return thing, err
+}
 
 func confirmThing(id string, userId string) (thing Thing, published bool, err error) {
 	log.Info().
@@ -66,24 +148,6 @@ WHERE id = upd
 	}
 
 	return
-}
-
-func (thing Thing) fillParties() (err error) {
-	if thing.Parties != nil && len(thing.Parties) > 0 {
-		return nil
-	}
-
-	thing.Parties = []Party{}
-	err = pg.Select(&thing.Parties, `
-SELECT parties.*, users.* FROM parties
-INNER JOIN users ON users.id = parties.thing_id
-WHERE thing_id = $1
-                    `, thing.Id)
-	if err != nil {
-		log.Error().Str("thing", thing.Id).Err(err).
-			Msg("on thing parties query")
-	}
-	return err
 }
 
 func (thing Thing) publish() (published bool, err error) {

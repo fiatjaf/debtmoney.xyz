@@ -40,6 +40,7 @@ a {
   right: 10px;
   width: 400px;
   max-width: 60%;
+  z-index: 50;
 }
 
 .pageloader {
@@ -93,7 +94,7 @@ a {
 }
 
 .newthing {
-  table, &table {
+  table {
     table-layout: fixed;
     max-width: 500px;
     margin: auto;
@@ -104,14 +105,25 @@ a {
   }
   td, input, select { font-size: 16px; line-height: 24px; }
 
+  .asset {
+    line-height: 24px;
+    margin: 0 auto 23px;
+    width: 70%;
+
+    label {
+      font-weight: 700;
+      color: #363636;
+    }
+
+    select {
+      margin-left: 7px;
+    }
+  }
   th { text-align: center; }
-
   .name input { text-align: center; }
-
-  .user_id, .paid, .due, .paid-total, .due-total, .summary {
+  .account_name, .paid, .due, .paid-total, .due-total, .summary {
     &, input { text-align: right; }
   }
-
   .paid, .due, .paid-total, .due-total {
     &, input { font-family: monospace; }
   }
@@ -145,5 +157,9 @@ a {
     &:focus {
       background-color: lightblue;
     }
+  }
+
+  .button-footer {
+    text-align: right;
   }
 }

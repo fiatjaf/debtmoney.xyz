@@ -10,13 +10,8 @@ import Html.Attributes exposing (class, href, value)
 import Html.Events exposing (onClick, onSubmit, onWithOptions)
 import Navigation exposing (Location)
 import Task exposing (Task)
-import Http
 import Dict
-import Array
 import Time exposing (Time)
-import Process
-import Json.Decode as JD
-import Json.Encode as JE
 import Result
 import Date
 import Date.Format
@@ -84,8 +79,7 @@ type Msg
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
   | NewThingChange NewThingMsg
-  -- | SubmitNewThing
-  -- | GotDebtDeclarationResponse (Result GraphQL.Http.Error ServerResult)
+  | GotNewThingResponse (Result GraphQL.Client.Http.Error Thing)
   -- | ConfirmThing Int
   -- | GotThingConfirmationResponse (Result Http.Error ServerResult)
 
@@ -155,20 +149,24 @@ update msg model =
           , delay (Time.second * 4) EraseError
           )
     NewThingChange change ->
-      ( { model | newThing = updateNewThing change model.newThing }
-      , Cmd.none
-      )
-    -- SubmitDebtDeclaration ->
-    --   ( { model | loading = "Submitting debt declaration..." }
-    --   , submitDebt model GotDebtDeclarationResponse
-    --   )
-    -- GotDebtDeclarationResponse result ->
-    --   case result of
-    --     Ok thing -> update LoadMyself { model | loading = "" }
-    --     Err err ->
-    --       ( { model | error = errorFormat err }
-    --       , delay (Time.second * 4) EraseError
-    --       )
+      case change of
+        Submit -> 
+          ( { model | loading = "Submitting transaction..." }
+          , request model.newThing newThingMutation
+            |> sendMutation "/_graphql"
+            |> Task.attempt GotNewThingResponse
+          )
+        _ ->
+          ( { model | newThing = updateNewThing change model.newThing }
+          , Cmd.none
+          )
+    GotNewThingResponse result ->
+      case result of
+        Ok thing -> update LoadMyself { model | loading = "" }
+        Err err ->
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 4) EraseError
+          )
     -- ConfirmThing thingId ->
     --   ( model
     --   , submitConfirmation thingId GotThingConfirmationResponse

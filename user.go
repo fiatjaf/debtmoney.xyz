@@ -18,7 +18,7 @@ type User struct {
 	Balances []Balance `json:"balances"`
 	Things   []Thing   `json:"things"`
 
-	ha horizon.Account
+	ha horizon.Account `json:"-"`
 }
 
 type Balance struct {

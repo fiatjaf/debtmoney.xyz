@@ -45,7 +45,9 @@ type alias ServerResult =
   { value : String
   }
 
-serverResultSpec = object ServerResult |> with ( field "value" [] string )
+serverResultSpec =
+  object ServerResult
+    |> with ( field "value" [] (map (Maybe.withDefault "") (nullable string)) )
 
 
 delay : Time -> msg -> Cmd msg
