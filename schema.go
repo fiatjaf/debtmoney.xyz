@@ -31,7 +31,7 @@ var queries = graphql.Fields{
 
 			var thing Thing
 			err = pg.Get(&thing, `
-SELECT * FROM things
+SELECT `+thing.columns()+` FROM things
 WHERE id = $1
 LIMIT 1
         `, thingId)
@@ -58,7 +58,7 @@ var userType = graphql.NewObject(
 					for i, b := range user.ha.Balances {
 						var assetName string
 						if b.Asset.Type == "native" {
-							// continue // should we display this?
+							continue // should we display this? no, probably not.
 							assetName = "lumens"
 						} else {
 							issuerName := b.Asset.Issuer
@@ -91,7 +91,7 @@ var userType = graphql.NewObject(
 
 					user.Things = []Thing{}
 					err = pg.Select(&user.Things, `
-SELECT things.* FROM things
+SELECT `+(Thing{}).columns()+` FROM things
 INNER JOIN parties ON things.id = parties.thing_id
 WHERE parties.user_id = $1
 ORDER BY actual_date DESC
@@ -113,13 +113,15 @@ var thingType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "ThingType",
 		Fields: graphql.Fields{
-			"id":          &graphql.Field{Type: graphql.String},
-			"created_at":  &graphql.Field{Type: graphql.String},
-			"actual_date": &graphql.Field{Type: graphql.String},
-			"created_by":  &graphql.Field{Type: graphql.String},
-			"name":        &graphql.Field{Type: graphql.String},
-			"asset":       &graphql.Field{Type: graphql.String},
-			"txn":         &graphql.Field{Type: graphql.String},
+			"id":            &graphql.Field{Type: graphql.String},
+			"created_at":    &graphql.Field{Type: graphql.String},
+			"actual_date":   &graphql.Field{Type: graphql.String},
+			"created_by":    &graphql.Field{Type: graphql.String},
+			"name":          &graphql.Field{Type: graphql.String},
+			"asset":         &graphql.Field{Type: graphql.String},
+			"total_due":     &graphql.Field{Type: graphql.String},
+			"total_due_set": &graphql.Field{Type: graphql.Boolean},
+			"txn":           &graphql.Field{Type: graphql.String},
 			"parties": &graphql.Field{
 				Type: graphql.NewList(partyType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -141,6 +143,7 @@ var partyType = graphql.NewObject(
 			"thing_id":     &graphql.Field{Type: graphql.String},
 			"paid":         &graphql.Field{Type: graphql.String},
 			"due":          &graphql.Field{Type: graphql.String},
+			"due_set":      &graphql.Field{Type: graphql.Boolean},
 			"note":         &graphql.Field{Type: graphql.String},
 			"added_by":     &graphql.Field{Type: graphql.String},
 			"confirmed":    &graphql.Field{Type: graphql.Boolean},
@@ -180,6 +183,7 @@ var mutations = graphql.Fields{
 			"asset": &graphql.ArgumentConfig{
 				Type: graphql.NewNonNull(graphql.String),
 			},
+			"total_due": &graphql.ArgumentConfig{Type: graphql.String},
 			"parties": &graphql.ArgumentConfig{
 				Type: graphql.NewNonNull(graphql.NewList(
 					graphql.NewNonNull(inputPartyType),
@@ -198,6 +202,7 @@ var mutations = graphql.Fields{
 			thingId, _ := p.Args["id"].(string)
 			date, _ := p.Args["date"].(string)
 			name, _ := p.Args["name"].(string)
+			total_due, _ := p.Args["total_due"].(string)
 			asset := p.Args["asset"].(string)
 			parties := p.Args["parties"].([]interface{})
 
@@ -206,6 +211,7 @@ var mutations = graphql.Fields{
 				Str("date", date).
 				Str("name", name).
 				Str("asset", asset).
+				Str("total_due", total_due).
 				Int("nparties", len(parties)).
 				Msg("creating thing")
 
@@ -213,9 +219,9 @@ var mutations = graphql.Fields{
 				thingId = cuid.Slug()
 			}
 
-			thing, err := insertThing(thingId, date, userId, name, asset, parties)
+			thing, err := insertThing(
+				thingId, date, userId, name, asset, total_due, parties)
 			if err != nil {
-				log.Warn().Err(err).Msg("on insertThing")
 				return nil, err
 			}
 			return thing, nil

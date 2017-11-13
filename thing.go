@@ -11,19 +11,35 @@ import (
 )
 
 type Thing struct {
-	Id          string    `json:"id"           db:"id"`
-	CreatedAt   time.Time `json:"created_at"   db:"created_at"`
-	ActualDate  time.Time `json:"actual_date"  db:"actual_date"`
-	CreatedBy   string    `json:"created_by"   db:"created_by"`
-	Name        string    `json:"name"         db:"name"`
-	Asset       string    `json:"asset"        db:"asset"`
-	Transaction string    `json:"txn"          db:"txn"`
+	Id          string          `json:"id"            db:"id"`
+	CreatedAt   time.Time       `json:"created_at"    db:"created_at"`
+	ActualDate  time.Time       `json:"actual_date"   db:"actual_date"`
+	CreatedBy   string          `json:"created_by"    db:"created_by"`
+	Name        string          `json:"name"          db:"name"`
+	Asset       string          `json:"asset"         db:"asset"`
+	TotalDue    decimal.Decimal `json:"total_due"     db:"total_due"`
+	TotalDueSet bool            `json:"total_due_set" db:"total_due_set"`
+	Transaction string          `json:"txn"           db:"txn"`
 
 	Publishable bool `json:"-" db:"publishable"`
 
 	Parties []Party `json:"parties"`
 
 	Peers map[string]User `json:"-"`
+}
+
+func (thing Thing) columns() string {
+	return `
+things.id,
+created_at,
+actual_date,
+created_by,
+coalesce(name, '') AS name,
+coalesce(total_due, '0') AS total_due,
+total_due IS NULL AS total_due_set,
+asset,
+coalesce(txn, '') AS txn
+    `
 }
 
 func (thing *Thing) fillParties() (err error) {
@@ -34,12 +50,7 @@ func (thing *Thing) fillParties() (err error) {
 	thing.Parties = []Party{}
 	err = pg.Select(
 		&thing.Parties, `
-SELECT
-  thing_id, account_name, paid, due, added_by, confirmed,
-  coalesce(parties.user_id, '') AS user_id,
-  coalesce(parties.note, '') AS note,
-  coalesce(users.id, '') AS id,
-  coalesce(users.address, '') AS address
+SELECT `+(Party{}).columns()+`, `+(User{}).columns()+`
 FROM parties
 LEFT JOIN users ON users.id = parties.user_id
 WHERE thing_id = $1;
@@ -58,6 +69,7 @@ type Party struct {
 	AccountName string          `json:"account_name" db:"account_name"`
 	Paid        decimal.Decimal `json:"paid"         db:"paid"`
 	Due         decimal.Decimal `json:"due"          db:"due"`
+	DueSet      bool            `json:"due_set"      db:"due_set"`
 	Note        string          `json:"note"         db:"note"`
 	AddedBy     string          `json:"added_by"     db:"added_by"`
 	Confirmed   bool            `json:"confirmed"    db:"confirmed"`
@@ -68,10 +80,20 @@ type Party struct {
 	valueAssigned decimal.Decimal `json:"-"`
 }
 
+func (p Party) columns() string {
+	return `
+thing_id, account_name, added_by, confirmed,
+coalesce(due, '0') AS due,
+due IS NOT NULL AS due_set,
+coalesce(paid, '0') AS paid,
+coalesce(user_id, '') AS user_id,
+coalesce(note, '') AS note
+    `
+}
 func (p Party) Balance() decimal.Decimal { return p.Paid.Sub(p.Due).Abs() }
 
 func insertThing(
-	id, date, user_id, name, asset string,
+	id, date, user_id, name, asset, total_due string,
 	parties []interface{},
 ) (Thing, error) {
 	log.Info().Str("thing", id).Msg("inserting")
@@ -85,11 +107,12 @@ func insertThing(
 	defer txn.Rollback()
 
 	err = txn.Get(&thing, `
-INSERT INTO things (id, actual_date, name, asset, created_by)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING *
-    `, id, date, name, asset, user_id)
+INSERT INTO things (id, actual_date, name, asset, total_due, created_by)
+VALUES ($1, $2, $3, $4, nullable($5), $6)
+RETURNING `+thing.columns(),
+		id, date, name, asset, total_due, user_id)
 	if err != nil {
+		log.Warn().Err(err).Msg("when inserting a new thing")
 		return thing, err
 	}
 
@@ -101,7 +124,10 @@ RETURNING *
 (
   (SELECT id FROM users WHERE id = $%d),
   $%d,
-  $%d, $%d, $%d, $%d
+  $%d,
+  nullable($%d),
+  nullable($%d),
+  $%d
 )
         `, i*6+1, i*6+2, i*6+3, i*6+4, i*6+5, i*6+6)
 		partiesValues[(i*6)+0] = party["account"]
@@ -115,11 +141,10 @@ RETURNING *
 	err = txn.Select(&thing.Parties, `
 INSERT INTO parties (user_id, account_name, thing_id, due, paid, added_by)
 VALUES `+strings.Join(partiesSQL, ",")+`
-RETURNING
-  CASE WHEN user_id IS NULL THEN '' ELSE user_id END,
-  thing_id, account_name, due, paid, note, added_by, confirmed
-		`, partiesValues...)
+RETURNING `+(Party{}).columns(),
+		partiesValues...)
 	if err != nil {
+		log.Warn().Err(err).Msg("when inserting all parties for a thing")
 		return thing, err
 	}
 
@@ -143,7 +168,7 @@ WITH upd AS (
   WHERE thing_id = $1 AND user_id = $2
   RETURNING thing_id
 )
-SELECT *, things.publishable FROM things
+SELECT `+thing.columns()+`, things.publishable FROM things
 WHERE id = (SELECT thing_id FROM upd)
     `, id, userId)
 	if err != nil {
@@ -225,8 +250,8 @@ func (thing Thing) publish() (published bool, err error) {
 
 	// we must keep track of the total funding each account will have to receive
 	tofund := make(map[string]int)
-	for _, peer := range thing.Peers {
-		tofund[peer.Id] = 0
+	for _, party := range thing.Parties {
+		tofund[party.User.Id] = 0
 	}
 
 	// let's also store all the transaction operations
@@ -297,15 +322,15 @@ func (thing Thing) publish() (published bool, err error) {
 	// now we'll determine if the accounts need to be created
 	var accountsetups []b.TransactionMutator
 
-	for _, peer := range thing.Peers {
-		neededfunds := tofund[peer.Id]
+	for _, party := range thing.Parties {
+		neededfunds := tofund[party.User.Id]
 
-		if peer.ha.ID == "" {
+		if party.User.ha.ID == "" {
 			// doesn't exist on stellar, will create
-			accountness := peer.fundInitial(neededfunds + 20)
+			accountness := party.User.fundInitial(neededfunds + 20)
 			accountsetups = append(accountsetups, accountness)
 		} else if neededfunds > 0 {
-			accountness := peer.fund(neededfunds)
+			accountness := party.User.fund(neededfunds)
 			accountsetups = append(accountsetups, accountness)
 		}
 	}

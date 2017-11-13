@@ -45,7 +45,7 @@ type alias Model =
   , route : Page
   , user : User
   , thing : Thing
-  , newThing : NewThing
+  , editingThing : EditingThing
   , error : String
   , notification : String
   , loading : String
@@ -61,7 +61,7 @@ init flags location =
         HomePage
         defaultUser
         defaultThing
-        defaultNewThing
+        defaultEditingThing
         ""
         ""
         ""
@@ -80,8 +80,8 @@ type Msg
   | GotMyself (Result GraphQL.Client.Http.Error User.User)
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
-  | NewThingAction NewThingMsg
-  | GotNewThingResponse (Result GraphQL.Client.Http.Error Thing)
+  | EditingThingAction EditingThingMsg
+  | GotEditingThingResponse (Result GraphQL.Client.Http.Error Thing)
   | ThingAction String ThingMsg
   | UserAction String UserMsg
   | GotThingConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
@@ -132,7 +132,7 @@ update msg model =
           ( { model
               | me = user
               , loading = ""
-              , newThing = updateNewThing (EnsureParty user.id) model.newThing
+              , editingThing = updateEditingThing (EnsureParty user.id) model.editingThing
             }
           , Cmd.none
           )
@@ -154,25 +154,25 @@ update msg model =
           ( { model | error = errorFormat err, loading = "" }
           , delay (Time.second * 5) EraseNotifications
           )
-    NewThingAction change ->
+    EditingThingAction change ->
       case change of
         Submit -> 
           ( { model | loading = "Submitting transaction..." }
-          , request model.newThing newThingMutation
+          , request model.editingThing editingThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt GotNewThingResponse
+            |> Task.attempt GotEditingThingResponse
           )
         _ ->
-          ( { model | newThing = updateNewThing change model.newThing }
+          ( { model | editingThing = updateEditingThing change model.editingThing }
           , Cmd.none
           )
-    GotNewThingResponse result ->
+    GotEditingThingResponse result ->
       case result of
         Ok thing -> update LoadMyself
           { model
             | loading = ""
             , notification = "Saved transaction with id " ++ thing.id
-            , newThing = defaultNewThing
+            , editingThing = defaultEditingThing
           }
         Err err ->
           ( { model | error = errorFormat err, loading = "" }
@@ -253,7 +253,7 @@ view model =
       ]
     , section [ class "section" ]
       [ div [ class "container" ]
-        [ Html.map NewThingAction ( lazy viewNewThing model.newThing )
+        [ Html.map EditingThingAction ( lazy viewEditingThing model.editingThing )
         ]
       ]
     ]

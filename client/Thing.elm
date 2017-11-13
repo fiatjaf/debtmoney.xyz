@@ -31,17 +31,21 @@ type alias Thing =
   , actual_date : String
   , created_by : String
   , name : String
+  , asset : String
+  , total_due : String
+  , total_due_set : Bool
   , txn : String
   , parties : List Party
   }
 
-defaultThing = Thing "" "" "" "" "" "" []
+defaultThing = Thing "" "" "" "" "" "" "" False "" []
 
 type alias Party =
   { thing_id : String
-  , user_id : Maybe String
+  , user_id : String
   , account_name : String
   , due : String
+  , due_set : Bool
   , paid : String
   , note : String
   , added_by : String
@@ -49,7 +53,7 @@ type alias Party =
   , v : Int
   }
 
-defaultParty = Party "" Nothing "" "" "" "" "" False 0
+defaultParty = Party "" "" "" "" False "" "" "" False 0
 
 thingQuery : Document Query Thing String
 thingQuery =
@@ -67,26 +71,27 @@ thingSpec = object Thing
   |> with ( field "actual_date" [] string )
   |> with ( field "created_by" [] string )
   |> with ( field "name" [] (map (withDefault "") (nullable string)) )
+  |> with ( field "asset" [] string )
+  |> with ( field "total_due" [] string )
+  |> with ( field "total_due_set" [] bool )
   |> with ( field "txn" [] (map (withDefault "") (nullable string)) )
   |> with ( field "parties" [] (list partySpec) )
 
 partySpec = object Party
   |> with ( field "thing_id" [] string )
-  |> with ( field "user_id" [] (nullable string) )
+  |> with ( field "user_id" [] string )
   |> with ( field "account_name" [] string )
   |> with ( field "due" [] string )
+  |> with ( field "due_set" [] bool )
   |> with ( field "paid" [] string )
   |> with ( field "note" [] (map (withDefault "") (nullable string)) )
   |> with ( field "added_by" [] string )
   |> with ( field "confirmed" [] bool )
   |> withLocalConstant defaultParty.v
 
-newThingMutation : Document Mutation Thing NewThing
-newThingMutation =
-  let 
-    toValidNumber : String -> String
-    toValidNumber = Decimal.fromString >> withDefault zero >> fixed2
-  in extract
+editingThingMutation : Document Mutation Thing EditingThing
+editingThingMutation =
+  extract
     ( field "createThing"
       [ ( "date"
         , Arg.variable
@@ -94,15 +99,16 @@ newThingMutation =
         )
       , ( "name"
         , Arg.variable
-          <| Var.optional "name" (.name >> trim >> nonEmpty) Var.string " "
+          <| Var.optional "name" (.name >> trim >> nonEmpty) Var.string ""
         )
       , ( "asset", Arg.variable <| Var.required "asset" .asset Var.string )
+      , ( "total_due", Arg.variable <| Var.required "total_due" .total Var.string )
       , ( "parties", Arg.variable <| Var.required "parties" (.parties >> Array.toList)
           ( Var.list
             ( Var.object "InputPartyType"
               [ Var.field "account" (.account_name >> trim) Var.string
-              , Var.field "paid" (.paid >> toValidNumber) Var.string
-              , Var.field "due" (.due >> toValidNumber) Var.string
+              , Var.field "paid" .paid Var.string
+              , Var.field "due" .due Var.string
               ]
             )
           )
@@ -126,7 +132,7 @@ confirmThingMutation =
 -- MODEL
 
 
-type alias NewThing =
+type alias EditingThing =
   { date : String 
   , name : String
   , asset : String
@@ -134,7 +140,7 @@ type alias NewThing =
   , parties : Array Party
   }
 
-defaultNewThing = NewThing "now" "a splitted bill" "" "" Array.empty
+defaultEditingThing = EditingThing "now" "a splitted bill" "" "" Array.empty
 
 
 -- UPDATE
@@ -142,7 +148,7 @@ defaultNewThing = NewThing "now" "a splitted bill" "" "" Array.empty
 type ThingMsg
   = ConfirmThing
 
-type NewThingMsg
+type EditingThingMsg
   = SetTotal String
   | SetName String
   | SetAsset String
@@ -157,8 +163,8 @@ type UpdatePartyMsg
   | SetPartyDue String
   | SetPartyPaid String
 
-updateNewThing : NewThingMsg -> NewThing -> NewThing
-updateNewThing change vars =
+updateEditingThing : EditingThingMsg -> EditingThing -> EditingThing
+updateEditingThing change vars =
   case change of
     Submit -> vars -- should never happen because we filter for it first.
     SetTotal value -> { vars | total = decimalize vars.total value }
@@ -181,9 +187,9 @@ updateNewThing change vars =
     UpdateParty index upd ->
       case Array.get index vars.parties of
         Nothing -> case upd of
-          SetPartyAccount account_name -> updateNewThing (AddParty account_name "" "") vars
-          SetPartyDue due -> updateNewThing (AddParty "" (decimalize "" due) "") vars
-          SetPartyPaid paid -> updateNewThing (AddParty "" "" (decimalize "" paid)) vars
+          SetPartyAccount account_name -> updateEditingThing (AddParty account_name "" "") vars
+          SetPartyDue due -> updateEditingThing (AddParty "" (decimalize "" due) "") vars
+          SetPartyPaid paid -> updateEditingThing (AddParty "" "" (decimalize "" paid)) vars
         Just prevparty ->
           let party = { prevparty | v = prevparty.v + 1 } -- force view update
           in { vars
@@ -222,7 +228,7 @@ viewThingCard myId userId thing =
       if
         List.filter
           (\p ->
-            (p.user_id == Just myId) && p.confirmed
+            (p.user_id == myId) && p.confirmed
           ) thing.parties
         |> List.length
         |> (>) 0
@@ -259,24 +265,24 @@ partyRow : Party -> Html msg
 partyRow party =
   tr []
     [ td []
-      [ case party.user_id of
-        Nothing -> text party.account_name
-        Just user_id -> a [] [ text user_id ]
+      [ if party.user_id == ""
+        then text party.account_name
+        else a [] [ text party.user_id ]
       ]
     , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.due ]
     , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.paid ]
     , td [] [ text <| if party.confirmed then "yes" else "no" ]
     ]
 
-viewNewThing : NewThing -> Html NewThingMsg
-viewNewThing newThing =
+viewEditingThing : EditingThing -> Html EditingThingMsg
+viewEditingThing editingThing =
   let
     sum getter =
-      newThing.parties
+      editingThing.parties
         |> Array.map (getter >> Decimal.fromString >> withDefault zero)
         |> Array.foldl Decimal.add zero
     
-    setduesum = newThing.parties
+    setduesum = editingThing.parties
       |> Array.filter (.due >> (/=) "")
       |> Array.foldl
         ( .due
@@ -285,11 +291,11 @@ viewNewThing newThing =
         >> Decimal.add
         )
         zero
-    duetotal = Decimal.fromString newThing.total |> withDefault zero
+    duetotal = Decimal.fromString editingThing.total |> withDefault zero
     actualtotal = if eq duetotal zero then setduesum else duetotal
 
-    parties_n = Array.length newThing.parties
-    setdue_n = newThing.parties
+    parties_n = Array.length editingThing.parties
+    setdue_n = editingThing.parties
       |> Array.filter (.due >> (/=) "")
       |> Array.foldl ((+) << const 1) 0
     unsetdue_n = parties_n - setdue_n
@@ -304,13 +310,13 @@ viewNewThing newThing =
           Just v -> fixed2 v
 
   in
-    div [ class "newthing" ]
+    div [ class "editingthing" ]
       [ h1 [ class "title is-4" ] [ text "Declare a new transaction" ]
       , div [ class "asset control" ]
         [ label [] [ text "asset: " ]
         , div [ class "select" ]
           [ select
-            [ value newThing.asset
+            [ value editingThing.asset
             , on "change" (J.map SetAsset Html.Events.targetValue )
             ]
             <| List.map
@@ -332,7 +338,7 @@ viewNewThing newThing =
           , tr []
             [ td [ class "name" ]
               [ input
-                [ value newThing.name
+                [ value editingThing.name
                 , onInput SetName
                 ] []
               ]
@@ -340,7 +346,7 @@ viewNewThing newThing =
               [ input
                 [ value <|
                   if eq duetotal zero then fixed2 setduesum
-                  else newThing.total
+                  else editingThing.total
                 , onInput SetTotal
                 ] []
               ]
@@ -349,14 +355,14 @@ viewNewThing newThing =
           ]
         , tbody []
           <| List.indexedMap (\i -> Html.map (UpdateParty i))
-          <| List.indexedMap (lazy3 viewNewThingPartyRow unsetduedefault)
+          <| List.indexedMap (lazy3 viewEditingThingPartyRow unsetduedefault)
           <| flip List.append [ defaultParty ]
-          <| Array.toList newThing.parties
+          <| Array.toList editingThing.parties
         , tfoot []
           [ tr []
             [ td [ class "summary", colspan 3 ] <|
               if setdue_n == parties_n
-                && newThing.total /= ""
+                && editingThing.total /= ""
                 && (not <| eq
                   (sum .due)
                   (duetotal)
@@ -412,8 +418,8 @@ viewNewThing newThing =
         ]
       ]
 
-viewNewThingPartyRow : String -> Int -> Party -> Html UpdatePartyMsg
-viewNewThingPartyRow duedefault index party =
+viewEditingThingPartyRow : String -> Int -> Party -> Html UpdatePartyMsg
+viewEditingThingPartyRow duedefault index party =
   tr []
     [ td [ class "account_name" ]
       [ input

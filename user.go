@@ -21,6 +21,14 @@ type User struct {
 	ha horizon.Account `json:"-"`
 }
 
+func (u User) columns() string {
+	return `
+coalesce(users.id, '') AS id,
+coalesce(users.address, '') AS address,
+coalesce(users.seed, '') AS seed
+    `
+}
+
 type Balance struct {
 	Asset  string `json:"asset"`
 	Amount string `json:"amount"`
