@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/shopspring/decimal"
 	b "github.com/stellar/go/build"
@@ -12,8 +11,8 @@ import (
 
 type Thing struct {
 	Id          string          `json:"id"            db:"id"`
-	CreatedAt   time.Time       `json:"created_at"    db:"created_at"`
-	ActualDate  time.Time       `json:"actual_date"   db:"actual_date"`
+	CreatedAt   string          `json:"created_at"    db:"created_at"`
+	ActualDate  string          `json:"actual_date"   db:"actual_date"`
 	CreatedBy   string          `json:"created_by"    db:"created_by"`
 	Name        string          `json:"name"          db:"name"`
 	Asset       string          `json:"asset"         db:"asset"`
@@ -36,7 +35,7 @@ actual_date,
 created_by,
 coalesce(name, '') AS name,
 coalesce(total_due, '0') AS total_due,
-total_due IS NULL AS total_due_set,
+total_due IS NOT NULL AS total_due_set,
 asset,
 coalesce(txn, '') AS txn
     `

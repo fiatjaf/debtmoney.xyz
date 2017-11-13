@@ -48,8 +48,9 @@ var userType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "UserType",
 		Fields: graphql.Fields{
-			"id":      &graphql.Field{Type: graphql.String},
-			"address": &graphql.Field{Type: graphql.String},
+			"id":            &graphql.Field{Type: graphql.String},
+			"address":       &graphql.Field{Type: graphql.String},
+			"default_asset": &graphql.Field{Type: graphql.String},
 			"balances": &graphql.Field{
 				Type: graphql.NewList(balanceType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {

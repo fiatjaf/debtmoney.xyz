@@ -11,9 +11,10 @@ import (
 )
 
 type User struct {
-	Id      string `json:"id"       db:"id"`
-	Address string `json:"address"  db:"address"`
-	Seed    string `json:"-"        db:"seed"`
+	Id           string `json:"id"            db:"id"`
+	Address      string `json:"address"       db:"address"`
+	Seed         string `json:"-"             db:"seed"`
+	DefaultAsset string `json:"default_asset" db:"default_asset"`
 
 	Balances []Balance `json:"balances"`
 	Things   []Thing   `json:"things"`
@@ -25,7 +26,8 @@ func (u User) columns() string {
 	return `
 coalesce(users.id, '') AS id,
 coalesce(users.address, '') AS address,
-coalesce(users.seed, '') AS seed
+coalesce(users.seed, '') AS seed,
+coalesce(users.default_asset, 'USD') AS default_asset
     `
 }
 
@@ -46,7 +48,7 @@ func ensureUser(id string) (user User, err error) {
 
 	log.Info().Str("id", id).Msg("checking account existence")
 	err = txn.Get(&user, `
-SELECT * FROM users
+SELECT `+user.columns()+` FROM users
  WHERE id = $1
     `, id)
 	if err != nil && err.Error() != "sql: no rows in result set" {

@@ -15,7 +15,8 @@ CREATE TABLE things (
   txn text DEFAULT '',
 
   CONSTRAINT positive CHECK (total_due::NUMERIC > 0),
-  CONSTRAINT name_notempty CHECK (name != '')
+  CONSTRAINT name_notempty CHECK (name != ''),
+  CONSTRAINT asset_notempty CHECK (asset != '')
 );
 
 CREATE TABLE parties (
@@ -80,6 +81,18 @@ CREATE CONSTRAINT TRIGGER thing_totals AFTER INSERT OR UPDATE OR DELETE ON parti
   FOR EACH ROW
   EXECUTE PROCEDURE thing_totals();
 
+CREATE FUNCTION default_asset(users) RETURNS text AS $$
+  SELECT asset FROM (
+    SELECT asset, count(*) AS c
+    FROM users
+    INNER JOIN parties ON parties.user_id = $1.id
+    INNER JOIN things ON things.id = parties.thing_id
+    GROUP BY asset
+  )x
+  ORDER BY c DESC
+  LIMIT 1;
+$$ LANGUAGE SQL;
+
 CREATE FUNCTION publishable(things) RETURNS boolean AS $$
   SELECT total = confirmed FROM (
     SELECT
@@ -103,13 +116,14 @@ $$
   IMMUTABLE
   RETURNS NULL ON NULL INPUT;
 
--- drop things
+-- drop everything
 
+-- DROP TABLE users; -- BEWARE, DON'T DROP THIS
 DROP TRIGGER thing_totals ON parties;
 DROP TRIGGER thing_totals ON things;
 DROP FUNCTION thing_totals();
 DROP FUNCTION publishable(things);
+DROP FUNCTION default_asset(users);
 DROP FUNCTION nullable(text);
--- DROP TABLE parties;
--- DROP TABLE things;
--- DROP TABLE users;
+DROP TABLE parties;
+DROP TABLE things;

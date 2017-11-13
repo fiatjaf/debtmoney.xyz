@@ -253,7 +253,8 @@ view model =
       ]
     , section [ class "section" ]
       [ div [ class "container" ]
-        [ Html.map EditingThingAction ( lazy viewEditingThing model.editingThing )
+        [ Html.map EditingThingAction
+          ( lazy2 viewEditingThing model.me.default_asset model.editingThing )
         ]
       ]
     ]

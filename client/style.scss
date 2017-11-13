@@ -108,6 +108,11 @@ a {
     margin: 14px;
   }
 
+  .name { font-weight: normal; }
+  .actualtotal, .date { padding: 12px; }
+  .actualtotal { font-weight: bold; font-size: 115%; }
+  .date { font-size: 85%; line-height: 26px; }
+
   table {
     width: 100%;
   }

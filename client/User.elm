@@ -20,6 +20,7 @@ import Thing exposing (..)
 type alias User =
   { id : String
   , address : String
+  , default_asset : String
   , balances : List Balance
   , things : List Thing
   }
@@ -31,7 +32,7 @@ type alias Balance =
   }
 
 defaultUser : User
-defaultUser = User "" "" [] []
+defaultUser = User "" "" "" [] []
 
 userQuery : Document Query User String
 userQuery =
@@ -46,6 +47,7 @@ userQuery =
 userSpec = object User
   |> with ( field "id" [] string )
   |> with ( field "address" [] string )
+  |> with ( field "default_asset" [] string )
   |> with ( field "balances" [] (list balanceSpec) )
   |> with ( field "things" [] (list thingSpec) )
 

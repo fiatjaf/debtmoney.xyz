@@ -224,22 +224,43 @@ viewThing thing =
 viewThingCard : String -> String -> Thing -> Html ThingMsg
 viewThingCard myId userId thing =
   let 
-    confirm =
-      if
-        List.filter
-          (\p ->
-            (p.user_id == myId) && p.confirmed
-          ) thing.parties
-        |> List.length
-        |> (>) 0
-      then text ""
-      else button [ onClick <| ConfirmThing ] [ text "confirm" ]
+    is_confirmed = thing.parties
+      |> List.filter (\p -> ((p.user_id) == myId) && p.confirmed)
+      |> List.length
+      |> (<) 0
+
+    totaldue = Decimal.fromString thing.total_due |> withDefault zero
+    setduesum = thing.parties
+      |> List.foldl (.due >> Decimal.fromString >> withDefault zero >> add) zero
+    actualtotal = if thing.total_due_set then totaldue else setduesum 
+
+    duedefault =
+      if thing.total_due_set
+      then
+        let
+          parties_n = List.length thing.parties
+          setdue_n = thing.parties
+            |> List.filter (.due_set)
+            |> List.foldl ((+) << const 1) 0
+          unsetdue_n = parties_n - setdue_n
+        in
+          case Decimal.fastdiv
+            (Decimal.sub totaldue setduesum)
+            (Decimal.fromInt unsetdue_n)
+          of
+            Nothing -> ""
+            Just v -> fixed2 v
+      else "" -- will not be used
   in
     div [ class "card" ]
       [ div [ class "card-header" ]
-        [ p [ class "card-header-title" ]
-          [ text <| if isBlank thing.name then thing.id else thing.name 
+        [ p [ class "card-header-title name" ]
+          [ text <| if isBlank thing.name then thing.id else thing.name
           ]
+        , span [ class "actualtotal" ]
+          [ text <| (fixed2 actualtotal) ++ " " ++ thing.asset
+          ]
+        , span [ class "date" ] [ text <| dateShort thing.actual_date]
         ]
       , div [ class "card-content" ]
         [ table []
@@ -252,45 +273,45 @@ viewThingCard myId userId thing =
               ]
             ]
           , tbody []
-            <| List.map partyRow thing.parties
+            <| List.map (viewPartyRow duedefault) thing.parties
           ]
         ]
       , div [ class "card-footer" ]
         [ a [ class "card-footer-item" ] [ text "Edit" ]
-        , a [ class "card-footer-item" ] [ text "Confirm" ]
+        , if is_confirmed
+          then span [ class "card-footer-item" ] [ text "Confirmed" ]
+          else a [ class "card-footer-item", onClick ConfirmThing ] [ text "Confirm" ]
         ]
       ]
 
-partyRow : Party -> Html msg
-partyRow party =
+viewPartyRow : String -> Party -> Html msg
+viewPartyRow duedefault party =
   tr []
     [ td []
       [ if party.user_id == ""
         then text party.account_name
         else a [] [ text party.user_id ]
       ]
-    , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.due ]
+    , td []
+      [ text <|
+        if party.due_set
+        then fixed2 <| withDefault zero <| Decimal.fromString party.due
+        else duedefault
+      ]
     , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.paid ]
     , td [] [ text <| if party.confirmed then "yes" else "no" ]
     ]
 
-viewEditingThing : EditingThing -> Html EditingThingMsg
-viewEditingThing editingThing =
+viewEditingThing : String -> EditingThing -> Html EditingThingMsg
+viewEditingThing default_asset editingThing =
   let
     sum getter =
       editingThing.parties
         |> Array.map (getter >> Decimal.fromString >> withDefault zero)
-        |> Array.foldl Decimal.add zero
+        |> Array.foldl add zero
     
     setduesum = editingThing.parties
-      |> Array.filter (.due >> (/=) "")
-      |> Array.foldl
-        ( .due
-        >> Decimal.fromString
-        >> withDefault zero
-        >> Decimal.add
-        )
-        zero
+      |> Array.foldl (.due >> Decimal.fromString >> withDefault zero >> add) zero
     duetotal = Decimal.fromString editingThing.total |> withDefault zero
     actualtotal = if eq duetotal zero then setduesum else duetotal
 
@@ -300,7 +321,7 @@ viewEditingThing editingThing =
       |> Array.foldl ((+) << const 1) 0
     unsetdue_n = parties_n - setdue_n
 
-    unsetduedefault =
+    duedefault =
       if duetotal == zero then "" else
         case Decimal.fastdiv
           (Decimal.sub duetotal setduesum)
@@ -308,7 +329,6 @@ viewEditingThing editingThing =
         of
           Nothing -> ""
           Just v -> fixed2 v
-
   in
     div [ class "editingthing" ]
       [ h1 [ class "title is-4" ] [ text "Declare a new transaction" ]
@@ -316,7 +336,10 @@ viewEditingThing editingThing =
         [ label [] [ text "asset: " ]
         , div [ class "select" ]
           [ select
-            [ value editingThing.asset
+            [ value <|
+              if editingThing.asset /= ""
+              then editingThing.asset
+              else default_asset
             , on "change" (J.map SetAsset Html.Events.targetValue )
             ]
             <| List.map
@@ -355,7 +378,7 @@ viewEditingThing editingThing =
           ]
         , tbody []
           <| List.indexedMap (\i -> Html.map (UpdateParty i))
-          <| List.indexedMap (lazy3 viewEditingThingPartyRow unsetduedefault)
+          <| List.indexedMap (lazy3 viewEditingPartyRow duedefault)
           <| flip List.append [ defaultParty ]
           <| Array.toList editingThing.parties
         , tfoot []
@@ -418,8 +441,8 @@ viewEditingThing editingThing =
         ]
       ]
 
-viewEditingThingPartyRow : String -> Int -> Party -> Html UpdatePartyMsg
-viewEditingThingPartyRow duedefault index party =
+viewEditingPartyRow : String -> Int -> Party -> Html UpdatePartyMsg
+viewEditingPartyRow duedefault index party =
   tr []
     [ td [ class "account_name" ]
       [ input
