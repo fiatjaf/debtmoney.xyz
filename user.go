@@ -16,9 +16,6 @@ type User struct {
 	Seed         string `json:"-"             db:"seed"`
 	DefaultAsset string `json:"default_asset" db:"default_asset"`
 
-	Balances []Balance `json:"balances"`
-	Things   []Thing   `json:"things"`
-
 	ha horizon.Account `json:"-"`
 }
 

@@ -15,7 +15,8 @@ var queries = graphql.Fields{
 			if p.Args["id"].(string) == "me" {
 				userId, ok := p.Context.Value("userId").(string)
 				if ok {
-					return ensureUser(userId)
+					u, err := ensureUser(userId)
+					return u, err
 				}
 			}
 			return nil, nil
@@ -55,7 +56,9 @@ var userType = graphql.NewObject(
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					user := p.Source.(User)
 
-					for i, b := range user.ha.Balances {
+					balances := make([]Balance, 0, len(user.ha.Balances))
+
+					for _, b := range user.ha.Balances {
 						var assetName string
 						if b.Asset.Type == "native" {
 							continue // should we display this? no, probably not.
@@ -74,14 +77,14 @@ var userType = graphql.NewObject(
 							assetName = b.Asset.Code + "#" + issuerName
 						}
 
-						user.Balances[i] = Balance{
+						balances = append(balances, Balance{
 							Asset:  assetName,
 							Amount: b.Balance,
 							Limit:  b.Limit,
-						}
+						})
 					}
 
-					return user.Balances, nil
+					return balances, nil
 				},
 			},
 			"things": &graphql.Field{
@@ -89,8 +92,9 @@ var userType = graphql.NewObject(
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					user := p.Source.(User)
 
-					user.Things = []Thing{}
-					err = pg.Select(&user.Things, `
+					things := []Thing{}
+
+					err = pg.Select(&things, `
 SELECT `+(Thing{}).columns()+` FROM things
 INNER JOIN parties ON things.id = parties.thing_id
 WHERE parties.user_id = $1
@@ -102,7 +106,7 @@ ORDER BY actual_date DESC
 						err = nil
 					}
 
-					return user.Things, err
+					return things, err
 				},
 			},
 		},
