@@ -186,6 +186,12 @@ update msg model =
             |> sendMutation "/_graphql"
             |> Task.attempt GotThingConfirmationResponse
           )
+        PublishThing ->
+          ( { model | loading = "Publishing transaction..." }
+          , request thingId confirmThingMutation
+            |> sendMutation "/_graphql"
+            |> Task.attempt GotThingConfirmationResponse
+          )
     UserAction userId msg ->
       case msg of
         UserThingAction thingId msg -> update (ThingAction thingId msg) model

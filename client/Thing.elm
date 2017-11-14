@@ -36,9 +36,10 @@ type alias Thing =
   , total_due_set : Bool
   , txn : String
   , parties : List Party
+  , publishable : Bool
   }
 
-defaultThing = Thing "" "" "" "" "" "" "" False "" []
+defaultThing = Thing "" "" "" "" "" "" "" False "" [] False
 
 type alias Party =
   { thing_id : String
@@ -76,6 +77,7 @@ thingSpec = object Thing
   |> with ( field "total_due_set" [] bool )
   |> with ( field "txn" [] (map (withDefault "") (nullable string)) )
   |> with ( field "parties" [] (list partySpec) )
+  |> with ( field "publishable" [] bool )
 
 partySpec = object Party
   |> with ( field "thing_id" [] string )
@@ -118,6 +120,16 @@ editingThingMutation =
     )
     |> mutationDocument
 
+publishThingMutation : Document Mutation Thing String
+publishThingMutation =
+  extract
+    ( field "publishThing"
+      [ ( "thing_id", Arg.variable <| Var.required "thing_id" identity Var.string )
+      ]
+      thingSpec
+    )
+    |> mutationDocument
+
 confirmThingMutation : Document Mutation Thing String
 confirmThingMutation =
   extract
@@ -147,6 +159,7 @@ defaultEditingThing = EditingThing "now" "a splitted bill" "" "" Array.empty
 
 type ThingMsg
   = ConfirmThing
+  | PublishThing
 
 type EditingThingMsg
   = SetTotal String
@@ -279,7 +292,9 @@ viewThingCard myId userId thing =
       , div [ class "card-footer" ]
         [ a [ class "card-footer-item" ] [ text "Edit" ]
         , if is_confirmed
-          then span [ class "card-footer-item" ] [ text "Confirmed" ]
+          then if thing.publishable
+            then a [ class "card-footer-item", onClick PublishThing ] [ text "Publish" ]
+            else span [ class "card-footer-item" ] [ text "Confirmed" ]
           else a [ class "card-footer-item", onClick ConfirmThing ] [ text "Confirm" ]
         ]
       ]

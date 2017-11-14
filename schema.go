@@ -32,8 +32,7 @@ var queries = graphql.Fields{
 			var thing Thing
 			err = pg.Get(&thing, `
 SELECT `+thing.columns()+` FROM things
-WHERE id = $1
-LIMIT 1
+WHERE id = $1 LIMIT 1
         `, thingId)
 			if err != nil {
 				log.Error().Str("thing", thingId).Err(err).Msg("on get thing")
@@ -131,6 +130,7 @@ var thingType = graphql.NewObject(
 					return thing.Parties, err
 				},
 			},
+			"publishable": &graphql.Field{Type: graphql.Boolean},
 		},
 	},
 )
@@ -226,6 +226,32 @@ var mutations = graphql.Fields{
 				return nil, err
 			}
 			return thing, nil
+		},
+	},
+	"publishThing": &graphql.Field{
+		Type: thingType,
+		Args: graphql.FieldConfigArgument{
+			"thing_id": &graphql.ArgumentConfig{Type: graphql.String},
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// anyone can publish what should already have been published
+			// no auth. this was supposed to happen automatically on
+			// the last confirmation.
+			thingId := p.Args["thingg_id"].(string)
+			var thing Thing
+			err = pg.Get(&thing, `
+SELECT `+thing.columns()+` FROM things
+WHERE id = $1 LIMIT 1
+        `, thingId)
+			if err != nil {
+				log.Error().Str("thing", thingId).Err(err).Msg("on get thing")
+			}
+
+			if thing.Publishable {
+				_, err = thing.publish()
+			}
+
+			return thing, err
 		},
 	},
 	"confirmThing": &graphql.Field{

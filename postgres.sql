@@ -76,7 +76,7 @@ CREATE CONSTRAINT TRIGGER thing_totals AFTER INSERT OR UPDATE ON things
   FOR EACH ROW
   EXECUTE PROCEDURE thing_totals();
 
-CREATE CONSTRAINT TRIGGER thing_totals AFTER INSERT OR UPDATE OR DELETE ON parties
+CREATE CONSTRAINT TRIGGER thing_totals AFTER INSERT OR UPDATE ON parties
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW
   EXECUTE PROCEDURE thing_totals();
@@ -94,13 +94,16 @@ CREATE FUNCTION default_asset(users) RETURNS text AS $$
 $$ LANGUAGE SQL;
 
 CREATE FUNCTION publishable(things) RETURNS boolean AS $$
-  SELECT total = confirmed FROM (
-    SELECT
-      count(*) AS total,
-      sum(confirmed::int) AS confirmed
-    FROM parties WHERE thing_id = $1.id
-    GROUP BY thing_id
-  )x;
+  SELECT coalesce(
+    (
+      SELECT total = confirmed FROM (
+        SELECT
+          count(*) AS total,
+          sum(confirmed::int) AS confirmed
+        FROM parties WHERE thing_id = $1.id
+        GROUP BY thing_id
+      )x
+    ), false);
 $$ LANGUAGE SQL;
 
 CREATE FUNCTION nullable(t text) RETURNS text AS $$

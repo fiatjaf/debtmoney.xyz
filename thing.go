@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/shopspring/decimal"
 	b "github.com/stellar/go/build"
@@ -19,8 +20,7 @@ type Thing struct {
 	TotalDue    decimal.Decimal `json:"total_due"     db:"total_due"`
 	TotalDueSet bool            `json:"total_due_set" db:"total_due_set"`
 	Transaction string          `json:"txn"           db:"txn"`
-
-	Publishable bool `json:"-" db:"publishable"`
+	Publishable bool            `json:"publishable"   db:"publishable"`
 
 	Parties []Party `json:"parties"`
 
@@ -37,7 +37,8 @@ coalesce(name, '') AS name,
 coalesce(total_due, '0') AS total_due,
 total_due IS NOT NULL AS total_due_set,
 asset,
-coalesce(txn, '') AS txn
+coalesce(txn, '') AS txn,
+things.publishable
     `
 }
 
@@ -57,9 +58,23 @@ WHERE thing_id = $1;
 	if err != nil {
 		log.Error().Str("thing", thing.Id).Err(err).
 			Msg("on thing parties query")
+		return
 	}
 
-	return err
+	// load accounts info from stellar
+	// ignore errors -- because the account may not be created on stellar yet
+	var wg sync.WaitGroup
+	for i, x := range thing.Parties {
+		wg.Add(1)
+		go func(index int, addr string) {
+			defer wg.Done()
+			ha, _ := h.LoadAccount(addr)
+			thing.Parties[index].User.ha = ha
+		}(i, x.User.Address)
+	}
+	wg.Wait()
+
+	return
 }
 
 type Party struct {
@@ -185,6 +200,12 @@ WHERE id = (SELECT thing_id FROM upd)
 func (thing Thing) publish() (published bool, err error) {
 	log.Info().Str("thing", thing.Id).Msg("publishing")
 
+	if thing.Transaction != "" {
+		log.Info().Str("txn", thing.Transaction).Msg("already published")
+		published = true
+		return
+	}
+
 	err = thing.fillParties()
 	if err != nil {
 		return
@@ -197,11 +218,28 @@ func (thing Thing) publish() (published bool, err error) {
 	var issuers []Party
 	totalLent := decimal.Decimal{}     // not the total amount paid, just the difference
 	totalBorrowed := decimal.Decimal{} // not the total amount due, ...
+
+	defaultDue := decimal.Decimal{}
+	if thing.TotalDueSet {
+		totalSet := decimal.Decimal{}
+		for _, x := range thing.Parties {
+			if x.DueSet {
+				totalSet = totalSet.Add(x.Due)
+			}
+		}
+		defaultDue = thing.TotalDue.Sub(totalSet)
+	}
+
 	for _, x := range thing.Parties {
-		if x.Due.GreaterThan(x.Paid) {
+		due := defaultDue
+		if x.DueSet {
+			due = x.Due
+		}
+
+		if due.GreaterThan(x.Paid) {
 			issuers = append(issuers, x)
 			totalLent = totalLent.Add(x.Balance())
-		} else if x.Due.LessThan(x.Paid) {
+		} else if due.LessThan(x.Paid) {
 			receivers = append(receivers, x)
 			totalBorrowed = totalBorrowed.Add(x.Balance())
 		} else {
@@ -328,6 +366,8 @@ func (thing Thing) publish() (published bool, err error) {
 			// doesn't exist on stellar, will create
 			accountness := party.User.fundInitial(neededfunds + 20)
 			accountsetups = append(accountsetups, accountness)
+			homedomainess := b.HomeDomain("debtmoney.xyz")
+			accountsetups = append(accountsetups, homedomainess)
 		} else if neededfunds > 0 {
 			accountness := party.User.fund(neededfunds)
 			accountsetups = append(accountsetups, accountness)
@@ -359,7 +399,7 @@ func (thing Thing) publish() (published bool, err error) {
 	// now commit the postgres transaction
 	if err == nil {
 		_, err := pg.Exec(`
-UPDATE thing SET txn = $1 WHERE id = $2
+UPDATE things SET txn = $1 WHERE id = $2
 		    `, hash, thing.Id)
 
 		if err != nil {
