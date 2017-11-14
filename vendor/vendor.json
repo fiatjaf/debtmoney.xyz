@@ -64,6 +64,78 @@
 			"revisionTime": "2017-08-02T14:17:18Z"
 		},
 		{
+			"checksumSHA1": "yr8RiWvqlTcW9/saKJJxmb7OevI=",
+			"path": "github.com/graphql-go/graphql",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "/g29kXS7NodmiYAPKeIyEXYYI+g=",
+			"path": "github.com/graphql-go/graphql/gqlerrors",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "t2SAPiaZ29ocFRyAPwV17OTccLE=",
+			"path": "github.com/graphql-go/graphql/language/ast",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "FNFpZJ07U5Ud3MCc25ast14qVbo=",
+			"path": "github.com/graphql-go/graphql/language/kinds",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "8prb7ZKM8a07/nduiBn9bjby6GI=",
+			"path": "github.com/graphql-go/graphql/language/lexer",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "yskrC6tG5BTJdIk4GKHzGTenQOc=",
+			"path": "github.com/graphql-go/graphql/language/location",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "eOtYOcF6kb2TeM8jRwbxbeJdT6E=",
+			"path": "github.com/graphql-go/graphql/language/parser",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "vvZgiJe8nZ6r++mAFcgXw1O1+nE=",
+			"path": "github.com/graphql-go/graphql/language/printer",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "dRrl/Ky/0NTYA3bZznpxp4tG5Jc=",
+			"path": "github.com/graphql-go/graphql/language/source",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "f62XVj7So29WO/HJC6znxHbbeTs=",
+			"path": "github.com/graphql-go/graphql/language/typeInfo",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "qeUIi6ohnCSBjL7lbvqPcc+L0Ig=",
+			"path": "github.com/graphql-go/graphql/language/visitor",
+			"revision": "7731016ba482d3741eea075d23dc6366b932f8f4",
+			"revisionTime": "2017-10-03T17:47:01Z"
+		},
+		{
+			"checksumSHA1": "I59VFzmcdfwE6AHL4v614K286MU=",
+			"path": "github.com/graphql-go/handler",
+			"revision": "52e6de4fccd785952dce42265f316acd43a3053f",
+			"revisionTime": "2016-04-07T15:44:39Z"
+		},
+		{
 			"checksumSHA1": "SEZulQ/Gm4f6P6/c3waZjXxvl0g=",
 			"path": "github.com/jmoiron/sqlx",
 			"revision": "d9bd385d68c068f1fabb5057e3dedcbcbb039d0f",
@@ -72,12 +144,6 @@
 		{
 			"checksumSHA1": "xXjxKqs3ECyWO5zjIVb2qgj9rcU=",
 			"path": "github.com/jmoiron/sqlx/reflectx",
-			"revision": "d9bd385d68c068f1fabb5057e3dedcbcbb039d0f",
-			"revisionTime": "2017-04-30T19:46:03Z"
-		},
-		{
-			"checksumSHA1": "q+dertYFOBviMOPcBLeMtXPHh6U=",
-			"path": "github.com/jmoiron/sqlx/types",
 			"revision": "d9bd385d68c068f1fabb5057e3dedcbcbb039d0f",
 			"revisionTime": "2017-04-30T19:46:03Z"
 		},
@@ -98,6 +164,12 @@
 			"path": "github.com/lib/pq/oid",
 			"revision": "3cd0097429be7d611bb644ef85b42bfb102ceea4",
 			"revisionTime": "2016-03-14T19:42:24Z"
+		},
+		{
+			"checksumSHA1": "IeuowmilGlbaDDVxAwfRDfLIz78=",
+			"path": "github.com/lucsky/cuid",
+			"revision": "4ebf6f7153501c411e7785440b7d11f4c1dcfe00",
+			"revisionTime": "2017-08-01T19:03:35Z"
 		},
 		{
 			"checksumSHA1": "b0T0Hzd+zYk+OCDTFMps+jwa/nY=",
@@ -123,6 +195,12 @@
 			"path": "github.com/pmezard/go-difflib/difflib",
 			"revision": "4d4bfba8f1d1027c4fdbe371823030df51419987",
 			"revisionTime": "2017-01-30T11:31:45Z"
+		},
+		{
+			"checksumSHA1": "UaDPQmvS/gOzoWR17NQEvHmaPL8=",
+			"path": "github.com/rs/cors",
+			"revision": "eabcc6af4bbe5ad3a949d36450326a2b0b9894b8",
+			"revisionTime": "2017-08-01T07:32:01Z"
 		},
 		{
 			"checksumSHA1": "3Ie7HG2k47G/gwz8prjymTMLEms=",
@@ -252,5 +330,5 @@
 			"revisionTime": "2015-10-12T18:13:41Z"
 		}
 	],
-	"rootPath": "debtmoney.xyz"
+	"rootPath": "github.com/fiatjaf/debtmoney.xyz"
 }
