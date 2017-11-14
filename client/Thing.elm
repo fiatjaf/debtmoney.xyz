@@ -15,6 +15,7 @@ import Maybe exposing (withDefault)
 import Json.Decode as J
 import Array exposing (Array)
 import Decimal exposing (Decimal, zero, add, mul, fastdiv, sub, eq)
+import GraphQL.Client.Http
 import GraphQL.Request.Builder exposing (..)
 import GraphQL.Request.Builder.Arg as Arg
 import GraphQL.Request.Builder.Variable as Var
@@ -160,6 +161,7 @@ defaultEditingThing = EditingThing "now" "a splitted bill" "" "" Array.empty
 type ThingMsg
   = ConfirmThing
   | PublishThing
+  | GotConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
 
 type EditingThingMsg
   = SetTotal String
@@ -170,6 +172,7 @@ type EditingThingMsg
   | UpdateParty Int UpdatePartyMsg
   | RemoveParty Int
   | Submit
+  | GotSubmitResponse (Result GraphQL.Client.Http.Error Thing)
 
 type UpdatePartyMsg
   = SetPartyAccount String
@@ -179,7 +182,6 @@ type UpdatePartyMsg
 updateEditingThing : EditingThingMsg -> EditingThing -> EditingThing
 updateEditingThing change vars =
   case change of
-    Submit -> vars -- should never happen because we filter for it first.
     SetTotal value -> { vars | total = decimalize vars.total value }
     SetName name -> { vars | name = name }
     SetAsset asset -> { vars | asset = asset }
@@ -219,6 +221,8 @@ updateEditingThing change vars =
         before = Array.slice 0 index vars.parties
         after = Array.slice (index + 1) 0 vars.parties
       in { vars | parties = Array.append before after }
+    Submit -> vars -- should never happen because we filter for it first.
+    GotSubmitResponse _ -> vars -- will never happen
 
 
 -- VIEW

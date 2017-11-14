@@ -81,10 +81,8 @@ type Msg
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
   | EditingThingAction EditingThingMsg
-  | GotEditingThingResponse (Result GraphQL.Client.Http.Error Thing)
   | ThingAction String ThingMsg
   | UserAction String UserMsg
-  | GotThingConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -136,10 +134,7 @@ update msg model =
             }
           , Cmd.none
           )
-        Err err ->
-          ( { model | error = errorFormat err, loading = "" }
-          , delay (Time.second * 5) EraseNotifications
-          )
+        Err err -> ( model, Navigation.load "/")
     GotUser result ->
       case result of
         Ok user -> { model | user = user, loading = "" } ! []
@@ -160,23 +155,23 @@ update msg model =
           ( { model | loading = "Submitting transaction..." }
           , request model.editingThing editingThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt GotEditingThingResponse
+            |> Task.attempt (GotSubmitResponse >> EditingThingAction)
           )
+        GotSubmitResponse result ->
+          case result of
+            Ok thing -> update LoadMyself
+              { model
+                | loading = ""
+                , notification = "Saved transaction with id " ++ thing.id
+                , editingThing = defaultEditingThing
+              }
+            Err err ->
+              ( { model | error = errorFormat err, loading = "" }
+              , delay (Time.second * 5) EraseNotifications
+              )
         _ ->
           ( { model | editingThing = updateEditingThing change model.editingThing }
           , Cmd.none
-          )
-    GotEditingThingResponse result ->
-      case result of
-        Ok thing -> update LoadMyself
-          { model
-            | loading = ""
-            , notification = "Saved transaction with id " ++ thing.id
-            , editingThing = defaultEditingThing
-          }
-        Err err ->
-          ( { model | error = errorFormat err, loading = "" }
-          , delay (Time.second * 5) EraseNotifications
           )
     ThingAction thingId msg ->
       case msg of
@@ -184,24 +179,24 @@ update msg model =
           ( { model | loading = "Confirming transaction..." }
           , request thingId confirmThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt GotThingConfirmationResponse
+            |> Task.attempt (GotConfirmationResponse >> ThingAction thingId)
           )
         PublishThing ->
           ( { model | loading = "Publishing transaction..." }
           , request thingId confirmThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt GotThingConfirmationResponse
+            |> Task.attempt (GotConfirmationResponse >> ThingAction thingId)
           )
+        GotConfirmationResponse result ->
+          case result of
+            Ok thing -> update LoadMyself { model | loading = "" }
+            Err err ->
+              ( { model | error = errorFormat err, loading = "" }
+              , delay (Time.second * 5) EraseNotifications
+              )
     UserAction userId msg ->
       case msg of
         UserThingAction thingId msg -> update (ThingAction thingId msg) model
-    GotThingConfirmationResponse result ->
-      case result of
-        Ok thing -> update LoadMyself { model | loading = "" }
-        Err err ->
-          ( { model | error = errorFormat err, loading = "" }
-          , delay (Time.second * 5) EraseNotifications
-          )
 
 
 -- SUBSCRIPTIONS
