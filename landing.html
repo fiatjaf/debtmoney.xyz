@@ -1,11 +1,15 @@
 <!doctype html>
 
 <form action=https://cantillon.alhur.es:6336/login method=get>
-  Log in as <input name=user placeholder=fulano>
-  with account <input name=account placeholder=fulano@twitter>
+  Log in as <input name=user placeholder=username>
+  with account <input name=account placeholder=someone@twitter>
   <input type=hidden name=redirect_uri>
   <button>ok</button>
 </form>
+
+<p>A friend-to-friend debt manager that integrates with the Stellar network to create people-powered internet money. Read more at <a href="https://galactictalk.org/d/482-debtmoney-xyz-people-powered-money-through-friend-to-friend-debt">this thread</a> and follow development at <a href="https://workflowy.com/#/f6c55cf3e1e1">this Workflowy list</a>.</p>
+<p>To try it out, choose a username, type it on the left field, and login with Twitter, GitHub or your email by typing it on the right (<code>mytwittername@twitter</code>, <code>mygithubname@github</code> or <code>myemail@emailprovider.com</code>).</p>
+<p>Source code: <a href=https://github.com/fiatjaf/debtmoney.xyz>https://github.com/fiatjaf/debtmoney.xyz</a></p>
 
 <script>
 var redirect = location.protocol + '//' + location.host + '/auth/callback'
