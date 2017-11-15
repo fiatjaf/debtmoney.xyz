@@ -10,11 +10,9 @@ import Html.Attributes exposing (class, href, value)
 import Html.Events exposing (onClick, onSubmit, onWithOptions)
 import Navigation exposing (Location)
 import Task exposing (Task)
-import Dict
+import Array exposing (Array)
 import Time exposing (Time)
 import Result
-import Date
-import Date.Format
 import GraphQL.Client.Http exposing (sendQuery, sendMutation)
 import GraphQL.Request.Builder exposing (request)
 
@@ -81,8 +79,8 @@ type Msg
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
   | EditingThingAction EditingThingMsg
-  | ThingAction String ThingMsg
-  | UserAction String UserMsg
+  | ThingAction Thing ThingMsg
+  | UserAction User UserMsg
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -155,7 +153,7 @@ update msg model =
       case change of
         Submit -> 
           ( { model | loading = "Submitting transaction..." }
-          , request model.editingThing editingThingMutation
+          , request model.editingThing setThingMutation
             |> sendMutation "/_graphql"
             |> Task.attempt (GotSubmitResponse >> EditingThingAction)
           )
@@ -175,19 +173,31 @@ update msg model =
           ( { model | editingThing = updateEditingThing change model.editingThing }
           , Cmd.none
           )
-    ThingAction thingId msg ->
+    ThingAction thing msg ->
       case msg of
-        ConfirmThing ->
+        EditThing ->
+          ( { model
+              | editingThing = EditingThing
+                  thing.id
+                  thing.actual_date
+                  thing.name
+                  thing.asset
+                  ( if thing.total_due_set then thing.total_due else "" )
+                  ( Array.fromList thing.parties )
+            }
+          , Cmd.none
+          )
+        ConfirmThing confirm ->
           ( { model | loading = "Confirming transaction..." }
-          , request thingId confirmThingMutation
+          , request (thing.id, confirm) confirmThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt (GotConfirmationResponse >> ThingAction thingId)
+            |> Task.attempt (GotConfirmationResponse >> ThingAction thing)
           )
         PublishThing ->
           ( { model | loading = "Publishing transaction..." }
-          , request thingId confirmThingMutation
+          , request thing.id publishThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt (GotConfirmationResponse >> ThingAction thingId)
+            |> Task.attempt (GotConfirmationResponse >> ThingAction thing)
           )
         GotConfirmationResponse result ->
           case result of
@@ -196,9 +206,9 @@ update msg model =
               ( { model | error = errorFormat err, loading = "" }
               , delay (Time.second * 5) EraseNotifications
               )
-    UserAction userId msg ->
+    UserAction user msg ->
       case msg of
-        UserThingAction thingId msg -> update (ThingAction thingId msg) model
+        UserThingAction thing msg -> update (ThingAction thing msg) model
 
 
 -- SUBSCRIPTIONS
@@ -242,13 +252,13 @@ view model =
       [ div [ class "container" ]
         [ case model.route of
           HomePage ->
-            Html.map (UserAction model.me.id)
+            Html.map (UserAction model.me)
               <| lazy2 viewUser model.me model.me
           ThingPage r ->
-            Html.map (ThingAction model.thing.id)
+            Html.map (ThingAction model.thing)
               <| lazy viewThing model.thing
           UserPage u ->
-            Html.map (UserAction model.user.id)
+            Html.map (UserAction model.user)
               <| lazy2 viewUser model.me model.user
           NotFound ->
             div [] [ text "this page doesn't exist" ]

@@ -20,6 +20,7 @@ import GraphQL.Client.Http
 import GraphQL.Request.Builder exposing (..)
 import GraphQL.Request.Builder.Arg as Arg
 import GraphQL.Request.Builder.Variable as Var
+import Tuple exposing (..)
 import Prelude exposing (..)
 import String exposing (trim)
 import String.Extra exposing (nonEmpty, isBlank)
@@ -93,11 +94,12 @@ partySpec = object Party
   |> with ( field "confirmed" [] bool )
   |> withLocalConstant defaultParty.v
 
-editingThingMutation : Document Mutation Thing EditingThing
-editingThingMutation =
+setThingMutation : Document Mutation Thing EditingThing
+setThingMutation =
   extract
-    ( field "createThing"
-      [ ( "date"
+    ( field "setThing"
+      [ ( "id" , Arg.variable <| Var.required "id" .id Var.string )
+      , ( "date"
         , Arg.variable
           <| Var.optional "date" (.date >> trim >> nonEmpty) Var.string "now"
         )
@@ -132,11 +134,12 @@ publishThingMutation =
     )
     |> mutationDocument
 
-confirmThingMutation : Document Mutation Thing String
+confirmThingMutation : Document Mutation Thing (String, Bool)
 confirmThingMutation =
   extract
     ( field "confirmThing"
-      [ ( "thing_id", Arg.variable <| Var.required "thing_id" identity Var.string )
+      [ ( "thing_id", Arg.variable <| Var.required "thing_id" first Var.string )
+      , ( "confirm", Arg.variable <| Var.required "confirm" second Var.bool )
       ]
       thingSpec
     )
@@ -147,20 +150,22 @@ confirmThingMutation =
 
 
 type alias EditingThing =
-  { date : String 
+  { id : String
+  , date : String 
   , name : String
   , asset : String
   , total : String
   , parties : Array Party
   }
 
-defaultEditingThing = EditingThing "now" "a splitted bill" "" "" Array.empty
+defaultEditingThing = EditingThing "" "now" "a splitted bill" "" "" Array.empty
 
 
 -- UPDATE
 
 type ThingMsg
-  = ConfirmThing
+  = EditThing
+  | ConfirmThing Bool
   | PublishThing
   | GotConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
 
@@ -294,24 +299,28 @@ viewThingCard myId userId thing =
             <| List.map (viewPartyRow duedefault) thing.parties
           ]
         ]
-      , div [ class "card-footer" ]
-        <| if thing.txn == ""
-           then
-             [ a [ class "card-footer-item" ] [ text "Edit" ]
-             , if is_confirmed
-               then if thing.publishable
-                 then a [ class "card-footer-item", onClick PublishThing ] [ text "Publish" ]
-                 else span [ class "card-footer-item" ] [ text "Confirmed" ]
-               else a [ class "card-footer-item", onClick ConfirmThing ] [ text "Confirm" ]
-             ]
-           else
-            [ span [ class "card-footer-item" ] [ text "Published on Stellar" ]
-            , a
-              [ class "card-footer-item"
-              , href <| "https://stellar.debtmoney.xyz/testnet/#/txn/" ++ thing.txn
-              , target "_blank"
-              ] [ text <| wrap thing.txn ]
-            ]
+      , div [ class "card-footer" ] <|
+        if thing.txn /= "" then
+         [ span [ class "card-footer-item" ] [ text "Published on Stellar" ]
+         , a
+           [ class "card-footer-item"
+           , href <| "https://stellar.debtmoney.xyz/testnet/#/txn/" ++ thing.txn
+           , target "_blank"
+           ] [ text <| wrap thing.txn ]
+         ]
+        else if is_confirmed then
+          [ a [ class "card-footer-item", onClick <| ConfirmThing False ] [ text "Unconfirm" ]
+          , if thing.publishable
+            then a [ class "card-footer-item", onClick PublishThing ] [ text "Publish" ]
+            else span [ class "card-footer-item" ] [ text "Confirmed" ]
+          ]
+        else
+          [ a
+            [ class "card-footer-item"
+            , onClick EditThing
+            ] [ text "Edit" ]
+          , a [ class "card-footer-item", onClick <| ConfirmThing True ] [ text "Confirm" ]
+          ]
       ]
 
 viewPartyRow : String -> Party -> Html msg

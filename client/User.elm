@@ -60,7 +60,7 @@ balanceSpec = object Balance
 -- UPDATE
 
 type UserMsg
-  = UserThingAction String ThingMsg
+  = UserThingAction Thing ThingMsg
 
 
 -- VIEW
@@ -76,7 +76,7 @@ viewUser me user =
       [ h2 [] [ text "transactions:" ]
       , div [ class "things" ]
           <| List.map
-            (\t -> Html.map (UserThingAction t.id)
+            (\t -> Html.map (UserThingAction t)
               <| lazy3 viewThingCard me.id user.id t
             )
           <| user.things

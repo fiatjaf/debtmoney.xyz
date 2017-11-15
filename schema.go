@@ -186,7 +186,7 @@ var balanceType = graphql.NewObject(
 )
 
 var mutations = graphql.Fields{
-	"createThing": &graphql.Field{
+	"setThing": &graphql.Field{
 		Type: thingType,
 		Args: graphql.FieldConfigArgument{
 			"id":   &graphql.ArgumentConfig{Type: graphql.String},
@@ -227,14 +227,32 @@ var mutations = graphql.Fields{
 				Int("nparties", len(parties)).
 				Msg("creating thing")
 
-			if thingId == "" {
-				thingId = cuid.Slug()
+			var thing Thing
+			txn, err := pg.Beginx()
+			if err != nil {
+				return thing, err
+			}
+			defer txn.Rollback()
+			if thingId != "" {
+				err = deleteThing(txn, thingId)
+				if err != nil {
+					log.Warn().Err(err).Msg("failed to delete thing")
+					return nil, err
+				}
+			}
+			thingId = cuid.Slug()
+			thing, err = insertThing(
+				txn,
+				thingId, date, userId, name, asset, total_due,
+				parties)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to insert thing")
+				return nil, err
 			}
 
-			thing, err := insertThing(
-				thingId, date, userId, name, asset, total_due, parties)
+			err = txn.Commit()
 			if err != nil {
-				return nil, err
+				log.Warn().Err(err).Msg("failed to commit thing transaction")
 			}
 			return thing, nil
 		},
@@ -269,6 +287,7 @@ WHERE id = $1 LIMIT 1
 		Type: thingType,
 		Args: graphql.FieldConfigArgument{
 			"thing_id": &graphql.ArgumentConfig{Type: graphql.String},
+			"confirm":  &graphql.ArgumentConfig{Type: graphql.Boolean},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			userId, ok := p.Context.Value("userId").(string)
@@ -280,7 +299,9 @@ WHERE id = $1 LIMIT 1
 			}
 
 			thingId := p.Args["thing_id"].(string)
-			thing, published, err := confirmThing(thingId, userId)
+			confirm := p.Args["confirm"].(bool)
+
+			thing, published, err := confirmThing(thingId, userId, confirm)
 			if err != nil {
 				return nil, err
 			}

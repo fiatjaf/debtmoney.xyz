@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/shopspring/decimal"
 	b "github.com/stellar/go/build"
 )
@@ -105,18 +106,13 @@ coalesce(note, '') AS note
 }
 
 func insertThing(
+	txn *sqlx.Tx,
 	id, date, user_id, name, asset, total_due string,
 	parties []interface{},
 ) (Thing, error) {
-	log.Info().Str("thing", id).Msg("inserting")
+	log.Info().Str("thing", id).Msg("inserting thing in transaction")
 	var thing Thing
 	var err error
-
-	txn, err := pg.Beginx()
-	if err != nil {
-		return thing, err
-	}
-	defer txn.Rollback()
 
 	err = txn.Get(&thing, `
 INSERT INTO things (id, actual_date, name, asset, total_due, created_by)
@@ -159,30 +155,45 @@ RETURNING `+(Party{}).columns(),
 		log.Warn().Err(err).Msg("when inserting all parties for a thing")
 		return thing, err
 	}
-
-	err = txn.Commit()
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to commit user to postgres")
-	}
 	return thing, err
 }
 
-func confirmThing(id string, userId string) (thing Thing, published bool, err error) {
+func deleteThing(txn *sqlx.Tx, id string) error {
+	log.Info().Str("thing", id).Msg("deleting thing in transaction")
+
+	var hash string
+	err := txn.Get(&hash, `
+WITH dp AS ( DELETE FROM parties WHERE thing_id = $1 )
+     dt AS ( DELETE FROM things WHERE id = $1 )
+SELECT txn FROM things WHERE id = $1
+    `, id)
+	if err != nil {
+		return err
+	}
+	if hash != "" {
+		return errors.New("transaction already published, can't delete")
+	}
+
+	return nil
+}
+
+func confirmThing(id, userId string, confirm bool) (thing Thing, published bool, err error) {
 	log.Info().
 		Str("thing", id).
 		Str("user", userId).
+		Bool("confirm", confirm).
 		Msg("updating record with confirmation")
 
 	err = pg.Get(&thing, `
 WITH upd AS (
   UPDATE parties
-  SET confirmed = true
+  SET confirmed = $3
   WHERE thing_id = $1 AND user_id = $2
   RETURNING thing_id
 )
 SELECT `+thing.columns()+`, things.publishable FROM things
 WHERE id = (SELECT thing_id FROM upd)
-    `, id, userId)
+    `, id, userId, confirm)
 	if err != nil {
 		log.Error().Err(err).Msg("error appending confirmation")
 		return thing, false, errors.New("couldn't confirm.")
