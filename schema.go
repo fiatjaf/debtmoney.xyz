@@ -230,7 +230,7 @@ var mutations = graphql.Fields{
 			var thing Thing
 			txn, err := pg.Beginx()
 			if err != nil {
-				return thing, err
+				return nil, err
 			}
 			defer txn.Rollback()
 			if thingId != "" {
@@ -253,8 +253,40 @@ var mutations = graphql.Fields{
 			err = txn.Commit()
 			if err != nil {
 				log.Warn().Err(err).Msg("failed to commit thing transaction")
+				return nil, err
 			}
+
 			return thing, nil
+		},
+	},
+	"deleteThing": &graphql.Field{
+		Type: thingType,
+		Args: graphql.FieldConfigArgument{
+			"thingId": &graphql.ArgumentConfig{Type: graphql.String},
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			thingId := p.Args["thingId"].(string)
+
+			txn, err := pg.Beginx()
+			if err != nil {
+				return nil, err
+			}
+			defer txn.Rollback()
+
+			if thingId != "" {
+				err = deleteThing(txn, thingId)
+				if err != nil {
+					log.Warn().Err(err).Msg("failed to delete thing")
+					return nil, err
+				}
+			}
+
+			err = txn.Commit()
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to commit thing transaction")
+			}
+
+			return Thing{Id: thingId}, nil
 		},
 	},
 	"publishThing": &graphql.Field{

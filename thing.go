@@ -164,7 +164,7 @@ func deleteThing(txn *sqlx.Tx, id string) error {
 	var hash string
 	err := txn.Get(&hash, `
 WITH dp AS ( DELETE FROM parties WHERE thing_id = $1 )
-     dt AS ( DELETE FROM things WHERE id = $1 )
+   , dt AS ( DELETE FROM things WHERE id = $1 )
 SELECT txn FROM things WHERE id = $1
     `, id)
 	if err != nil {

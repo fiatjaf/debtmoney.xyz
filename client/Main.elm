@@ -155,20 +155,33 @@ update msg model =
           ( { model | loading = "Submitting transaction..." }
           , request model.editingThing setThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt (GotSubmitResponse >> EditingThingAction)
+            |> Task.attempt
+              ( EditingThingAction <<
+                GotResponse ("Saved transaction with id " ++ model.editingThing.id ++ ".")
+              )
           )
-        GotSubmitResponse result ->
+        Delete ->
+          ( { model | loading = "Deleting transaction " ++ model.editingThing.id ++ "..." }
+          , request model.editingThing.id deleteThingMutation
+            |> sendMutation "/_graphql"
+            |> Task.attempt
+              ( EditingThingAction <<
+                GotResponse ("Delete transaction " ++ model.editingThing.id ++ ".")
+              )
+          )
+        GotResponse success_message result ->
           case result of
             Ok thing -> update LoadMyself
               { model
                 | loading = ""
-                , notification = "Saved transaction with id " ++ thing.id
+                , notification = success_message
                 , editingThing = defaultEditingThing
               }
             Err err ->
               ( { model | error = errorFormat err, loading = "" }
               , delay (Time.second * 5) EraseNotifications
               )
+          
         _ ->
           ( { model | editingThing = updateEditingThing change model.editingThing }
           , Cmd.none

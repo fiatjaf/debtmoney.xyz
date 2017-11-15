@@ -94,6 +94,16 @@ partySpec = object Party
   |> with ( field "confirmed" [] bool )
   |> withLocalConstant defaultParty.v
 
+deleteThingMutation : Document Mutation Thing String
+deleteThingMutation =
+  extract
+    ( field "deleteThing"
+      [ ( "thingId" , Arg.variable <| Var.required "id" identity Var.string )
+      ]
+      thingSpec
+    )
+    |> mutationDocument
+
 setThingMutation : Document Mutation Thing EditingThing
 setThingMutation =
   extract
@@ -178,7 +188,8 @@ type EditingThingMsg
   | UpdateParty Int UpdatePartyMsg
   | RemoveParty Int
   | Submit
-  | GotSubmitResponse (Result GraphQL.Client.Http.Error Thing)
+  | Delete
+  | GotResponse String (Result GraphQL.Client.Http.Error Thing)
 
 type UpdatePartyMsg
   = SetPartyAccount String
@@ -227,8 +238,7 @@ updateEditingThing change vars =
         before = Array.slice 0 index vars.parties
         after = Array.slice (index + 1) 0 vars.parties
       in { vars | parties = Array.append before after }
-    Submit -> vars -- should never happen because we filter for it first.
-    GotSubmitResponse _ -> vars -- will never happen
+    _ -> vars -- should never happen because we filter for it first.
 
 
 -- VIEW
@@ -370,7 +380,11 @@ viewEditingThing editingThing =
           Just v -> fixed2 v
   in
     div [ class "editingthing" ]
-      [ h1 [ class "title is-4" ] [ text "Declare a new transaction" ]
+      [ h1 [ class "title is-4" ]
+        [ text <| if editingThing.id /= ""
+            then "Editing transaction " ++ editingThing.id
+            else "Declare a new transaction:"
+        ]
       , div [ class "asset control" ]
         [ label [] [ text "asset: " ]
         , div [ class "select" ]
@@ -470,8 +484,14 @@ viewEditingThing editingThing =
           ]
         ]
       , div [ class "button-footer" ]
-        [ button
-          [ class "button is-primary"
+        [ if editingThing.id /= ""
+          then button
+            [ class "button is-warning"
+            , onClick Delete
+            ] [ text "Delete" ]
+          else text ""
+        , button
+          [ class "button is-info"
           , onClick Submit
           ] [ text "Save" ]
         ]
