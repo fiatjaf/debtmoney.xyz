@@ -130,7 +130,9 @@ update msg model =
           ( { model
               | me = user
               , loading = ""
-              , editingThing = updateEditingThing (EnsureParty user.id) model.editingThing
+              , editingThing = model.editingThing
+                |> updateEditingThing (EnsureParty user.id)
+                |> updateEditingThing (SetAsset user.default_asset)
             }
           , Cmd.none
           )
@@ -255,7 +257,7 @@ view model =
     , section [ class "section" ]
       [ div [ class "container" ]
         [ Html.map EditingThingAction
-          ( lazy2 viewEditingThing model.me.default_asset model.editingThing )
+          ( lazy viewEditingThing model.editingThing )
         ]
       ]
     ]

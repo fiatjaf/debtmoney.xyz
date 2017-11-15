@@ -128,5 +128,5 @@ DROP FUNCTION thing_totals();
 DROP FUNCTION publishable(things);
 DROP FUNCTION default_asset(users);
 DROP FUNCTION nullable(text);
-DROP TABLE parties;
-DROP TABLE things;
+-- DROP TABLE parties;
+-- DROP TABLE things;

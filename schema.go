@@ -16,7 +16,11 @@ var queries = graphql.Fields{
 				userId, ok := p.Context.Value("userId").(string)
 				if ok {
 					u, err := ensureUser(userId)
-					return u, err
+					if err != nil {
+						return nil, err
+					}
+
+					return u, nil
 				}
 			}
 			return nil, nil
@@ -55,6 +59,9 @@ var userType = graphql.NewObject(
 				Type: graphql.NewList(balanceType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					user := p.Source.(User)
+
+					ha, _ := h.LoadAccount(user.Address)
+					user.ha = ha
 
 					balances := make([]Balance, 0, len(user.ha.Balances))
 

@@ -2,14 +2,15 @@ module Thing exposing (..)
 
 import Html exposing
   ( Html, text
-  , h1, h2, div, textarea, button, p, a, strong
+  , h1, h2, div, textarea, button, p, a
+  , strong
   , table, tbody, thead, tr, th, td, tfoot
   , input, select, option, header, nav
   , span, section, nav, img, label
   )
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2, lazy3)
-import Html.Attributes exposing (class, value, colspan, href)
+import Html.Attributes exposing (class, value, colspan, href, target)
 import Html.Events exposing (onInput, onClick, on)
 import Maybe exposing (withDefault)
 import Json.Decode as J
@@ -294,13 +295,23 @@ viewThingCard myId userId thing =
           ]
         ]
       , div [ class "card-footer" ]
-        [ a [ class "card-footer-item" ] [ text "Edit" ]
-        , if is_confirmed
-          then if thing.publishable
-            then a [ class "card-footer-item", onClick PublishThing ] [ text "Publish" ]
-            else span [ class "card-footer-item" ] [ text "Confirmed" ]
-          else a [ class "card-footer-item", onClick ConfirmThing ] [ text "Confirm" ]
-        ]
+        <| if thing.txn == ""
+           then
+             [ a [ class "card-footer-item" ] [ text "Edit" ]
+             , if is_confirmed
+               then if thing.publishable
+                 then a [ class "card-footer-item", onClick PublishThing ] [ text "Publish" ]
+                 else span [ class "card-footer-item" ] [ text "Confirmed" ]
+               else a [ class "card-footer-item", onClick ConfirmThing ] [ text "Confirm" ]
+             ]
+           else
+            [ span [ class "card-footer-item" ] [ text "Published on Stellar" ]
+            , a
+              [ class "card-footer-item"
+              , href <| "https://stellar.debtmoney.xyz/testnet/#/txn/" ++ thing.txn
+              , target "_blank"
+              ] [ text <| wrap thing.txn ]
+            ]
       ]
 
 viewPartyRow : String -> Party -> Html msg
@@ -321,8 +332,8 @@ viewPartyRow duedefault party =
     , td [] [ text <| if party.confirmed then "yes" else "no" ]
     ]
 
-viewEditingThing : String -> EditingThing -> Html EditingThingMsg
-viewEditingThing default_asset editingThing =
+viewEditingThing : EditingThing -> Html EditingThingMsg
+viewEditingThing editingThing =
   let
     sum getter =
       editingThing.parties
@@ -355,10 +366,7 @@ viewEditingThing default_asset editingThing =
         [ label [] [ text "asset: " ]
         , div [ class "select" ]
           [ select
-            [ value <|
-              if editingThing.asset /= ""
-              then editingThing.asset
-              else default_asset
+            [ value editingThing.asset
             , on "change" (J.map SetAsset Html.Events.targetValue )
             ]
             <| List.map

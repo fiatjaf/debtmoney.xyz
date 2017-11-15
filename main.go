@@ -120,6 +120,8 @@ func main() {
 					return
 				}
 
+				ensureUser(accountduser.Id)
+
 				// we now check if this user owns one of the accounts
 				// we have registered here (like if some debtmoney user
 				// has declared a debt with fulano@twitter we want to
@@ -127,15 +129,17 @@ func main() {
 				// redirect these debts to him).
 				params := make([]interface{}, len(accountduser.Accounts)+1)
 				params[0] = accountduser.Id
-				accvars := make([]string, len(accountduser.Accounts))
+				accvars := make([]string, len(accountduser.Accounts)+1)
+				accvars[0] = "$1"
 				for i, account := range accountduser.Accounts {
+					accvars[i+1] = "$" + strconv.Itoa(i+2)
 					params[i+1] = account.Account
-					accvars[i] = "$" + strconv.Itoa(i+2)
 				}
 				vars := strings.Join(accvars, ",")
 
 				_, err = pg.Exec(`
-UPDATE parties SET user_id = $1 WHERE user_id IN (`+vars+`)
+UPDATE parties SET user_id = $1
+WHERE account_name IN (`+vars+`)
                 `, params...)
 				if err != nil {
 					log.Error().Err(err).Str("user", accountduser.Id).

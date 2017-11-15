@@ -88,10 +88,9 @@ type Party struct {
 	AddedBy     string          `json:"added_by"     db:"added_by"`
 	Confirmed   bool            `json:"confirmed"    db:"confirmed"`
 
-	User `json:"-"`
+	workingDue decimal.Decimal `json:"-"`
 
-	// fields to store working values
-	valueAssigned decimal.Decimal `json:"-"`
+	User `json:"-"`
 }
 
 func (p Party) columns() string {
@@ -104,7 +103,6 @@ coalesce(user_id, '') AS user_id,
 coalesce(note, '') AS note
     `
 }
-func (p Party) Balance() decimal.Decimal { return p.Paid.Sub(p.Due).Abs() }
 
 func insertThing(
 	id, date, user_id, name, asset, total_due string,
@@ -219,29 +217,38 @@ func (thing Thing) publish() (published bool, err error) {
 	totalLent := decimal.Decimal{}     // not the total amount paid, just the difference
 	totalBorrowed := decimal.Decimal{} // not the total amount due, ...
 
-	defaultDue := decimal.Decimal{}
+	var splittedDue decimal.Decimal
+	remainingDue := decimal.Decimal{}
 	if thing.TotalDueSet {
+		dueUnsetCount := int64(0)
 		totalSet := decimal.Decimal{}
 		for _, x := range thing.Parties {
 			if x.DueSet {
 				totalSet = totalSet.Add(x.Due)
 			}
+			dueUnsetCount += 1
 		}
-		defaultDue = thing.TotalDue.Sub(totalSet)
+		remainingDue = thing.TotalDue.Sub(totalSet)
+		splittedDue = remainingDue.DivRound(decimal.New(dueUnsetCount, 0), 2)
 	}
 
-	for _, x := range thing.Parties {
-		due := defaultDue
-		if x.DueSet {
-			due = x.Due
+	for i, x := range thing.Parties {
+		x.workingDue = x.Due
+		if !x.DueSet {
+			if i == len(thing.Parties)-1 {
+				x.workingDue = remainingDue
+			} else {
+				x.workingDue = splittedDue
+				remainingDue = remainingDue.Sub(splittedDue)
+			}
 		}
 
-		if due.GreaterThan(x.Paid) {
+		if x.workingDue.GreaterThan(x.Paid) {
 			issuers = append(issuers, x)
-			totalLent = totalLent.Add(x.Balance())
-		} else if due.LessThan(x.Paid) {
+			totalBorrowed = totalBorrowed.Add(x.workingDue.Sub(x.Paid))
+		} else if x.workingDue.LessThan(x.Paid) {
 			receivers = append(receivers, x)
-			totalBorrowed = totalBorrowed.Add(x.Balance())
+			totalLent = totalLent.Add(x.Paid.Sub(x.workingDue))
 		} else {
 			continue
 			// this peer has paid exactly what he was due,
@@ -272,8 +279,8 @@ func (thing Thing) publish() (published bool, err error) {
 		for i, rec := range receivers {
 			var value decimal.Decimal
 			if i != len(receivers)-1 {
-				value = iss.Balance().
-					Mul(rec.Balance()).
+				value = iss.workingDue.Sub(iss.Paid).
+					Mul(rec.Paid.Sub(rec.workingDue)).
 					DivRound(total, 2)
 				totalAssigned = totalAssigned.Add(value)
 			} else {
@@ -366,7 +373,10 @@ func (thing Thing) publish() (published bool, err error) {
 			// doesn't exist on stellar, will create
 			accountness := party.User.fundInitial(neededfunds + 20)
 			accountsetups = append(accountsetups, accountness)
-			homedomainess := b.HomeDomain("debtmoney.xyz")
+			homedomainess := b.SetOptions(
+				b.SourceAccount{party.User.Address},
+				b.HomeDomain("debtmoney.xyz"),
+			)
 			accountsetups = append(accountsetups, homedomainess)
 		} else if neededfunds > 0 {
 			accountness := party.User.fund(neededfunds)

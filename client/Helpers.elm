@@ -73,3 +73,13 @@ time
   = Date.fromString
   >> Result.withDefault (Date.fromTime 0)
   >> Date.Format.format "%I:%M:%S %P"
+
+wrap : String -> String
+wrap str =
+  if str == ""
+  then ""
+  else (String.left 3 str) ++ "..." ++ (String.right 4 str)
+    |> String.toLower
+
+limitwrap : String -> String
+limitwrap number = if number == "922337203685.4775807" then "max" else number

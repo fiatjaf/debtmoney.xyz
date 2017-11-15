@@ -37,57 +37,24 @@ type Balance struct {
 func ensureUser(id string) (user User, err error) {
 	id = strings.ToLower(id)
 
-	txn, err := pg.Beginx()
-	if err != nil {
-		return
-	}
-	defer txn.Rollback()
-
-	log.Info().Str("id", id).Msg("checking account existence")
-	err = txn.Get(&user, `
-SELECT `+user.columns()+` FROM users
- WHERE id = $1
-    `, id)
-	if err != nil && err.Error() != "sql: no rows in result set" {
-		log.Warn().Err(err).Msg("searching user")
-		return
-	}
-
-	// load account info from stellar
-	// runs no matter what
-	// ignore errors -- because the account may not be created on stellar yet
-	defer func() {
-		if err == nil {
-			ha, _ := h.LoadAccount(user.Address)
-			user.ha = ha
-		}
-	}()
-
-	if user.Id != "" {
-		// ok, we've found a row
-		return
-	}
-
-	// proceed to create a new row
-	log.Info().Str("id", id).Msg("creating account")
+	log.Info().Str("id", id).Msg("ensuring account")
 	pair, err := keypair.Random()
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to create keypair")
 		return
 	}
 
-	_, err = txn.Exec(`
-INSERT INTO users (id, address, seed)
-VALUES ($1, $2, $3)
+	_, err = pg.Exec(`
+WITH ins AS (
+  INSERT INTO users (id, address, seed)
+  VALUES ($1, $2, $3)
+  ON CONFLICT DO NOTHING
+)
+
+SELECT `+user.columns()+` FROM users
     `, id, pair.Address(), pair.Seed())
 	if err != nil {
 		log.Warn().Err(err).Str("id", id).Msg("failed to create user on db")
-		return
-	}
-
-	err = txn.Commit()
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to commit user to postgres")
 		return
 	}
 
