@@ -269,6 +269,12 @@
 			"revisionTime": "2017-10-16T19:22:36Z"
 		},
 		{
+			"checksumSHA1": "U27rDf8Wrh7NqmAkYkX+iTef7gs=",
+			"path": "github.com/stellar/go/protocols/federation",
+			"revision": "7398ce7fb6ebab5bb347203f261d834d22a72adc",
+			"revisionTime": "2017-10-16T19:22:36Z"
+		},
+		{
 			"checksumSHA1": "T/ktj9MMn1BW0wi8DOkMXmm/VhQ=",
 			"path": "github.com/stellar/go/strkey",
 			"revision": "7398ce7fb6ebab5bb347203f261d834d22a72adc",

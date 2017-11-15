@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -84,6 +85,18 @@ func main() {
 		},
 	)
 
+	router.Path("/.well-known/stellar.toml").Methods("GET").HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Content-Type", "application/toml")
+			fmt.Fprint(w, `
+FEDERATION_SERVER="`+s.ServiceURL+`/federation"
+            `)
+		},
+	)
+	router.Path("/federation").Methods("GET").HandlerFunc(fed)
+	router.Path("/federation/").Methods("GET").HandlerFunc(fed)
+
 	router.Path("/_graphql").Methods("POST").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.TODO()
@@ -153,6 +166,7 @@ WHERE account_name IN (`+vars+`)
 			}
 		},
 	)
+
 	router.Path("/").Methods("GET").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, "./landing.html")
