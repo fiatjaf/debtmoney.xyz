@@ -44,24 +44,18 @@ func ensureUser(id string) (user User, err error) {
 		return
 	}
 
-	_, err = pg.Exec(`
+	err = pg.Get(&user, `
 WITH ins AS (
   INSERT INTO users (id, address, seed)
   VALUES ($1, $2, $3)
   ON CONFLICT DO NOTHING
 )
 
-SELECT `+user.columns()+` FROM users
+SELECT `+user.columns()+` FROM users WHERE id = $1
     `, id, pair.Address(), pair.Seed())
 	if err != nil {
 		log.Warn().Err(err).Str("id", id).Msg("failed to create user on db")
 		return
-	}
-
-	user = User{
-		Id:      id,
-		Address: pair.Address(),
-		Seed:    pair.Seed(),
 	}
 
 	return
