@@ -15,9 +15,6 @@ import GraphQL.Request.Builder exposing (..)
 import Prelude exposing (..)
 
 
-type GlobalAction
-  = Navigate
-
 decimalize : String -> String -> String
 decimalize default n =
   if n == "" then "" else String.toFloat n
@@ -31,15 +28,15 @@ errorFormat : GraphQL.Client.Http.Error -> String
 errorFormat err =
   case err of
     GraphQLError errors ->
-      "errors: " ++ (String.join ". " <| List.map .message errors)
+      "Errors: " ++ (String.join ". " <| List.map .message errors)
     HttpError httperror ->
       case httperror of
-        Http.BadUrl u -> "bad url " ++ u
+        Http.BadUrl u -> "Bad URL: " ++ u
         Http.Timeout -> "timeout"
-        Http.NetworkError -> "network error"
+        Http.NetworkError -> "NETWORK ERROR"
         Http.BadStatus resp ->
       resp.url ++ " returned " ++ (toString resp.status.code) ++ ": " ++ resp.body
-        Http.BadPayload x y -> "bad payload (" ++ x ++ ")"
+        Http.BadPayload x y -> "Bad payload (" ++ x ++ ")"
 
 type alias ServerResult =
   { value : String

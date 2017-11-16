@@ -12,18 +12,16 @@ var queries = graphql.Fields{
 			"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			if p.Args["id"].(string) == "me" {
-				userId, ok := p.Context.Value("userId").(string)
-				if ok {
-					u, err := ensureUser(userId)
-					if err != nil {
-						return nil, err
-					}
-
-					return u, nil
-				}
+			var userId = p.Args["id"].(string)
+			if userId == "me" {
+				userId = p.Context.Value("userId").(string)
 			}
-			return nil, nil
+
+			u, err := ensureUser(userId)
+			if err != nil {
+				return nil, err
+			}
+			return u, nil
 		},
 	},
 	"thing": &graphql.Field{
@@ -97,18 +95,40 @@ var userType = graphql.NewObject(
 			"things": &graphql.Field{
 				Type: graphql.NewList(thingType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					loggedUserId, ok := p.Context.Value("userId").(string)
+					if !ok {
+						return nil, nil
+					}
+
 					user := p.Source.(User)
 
 					things := []Thing{}
-
-					err = pg.Select(&things, `
+					var err error
+					if user.Id != loggedUserId {
+						err = pg.Select(&things, `
+SELECT `+(Thing{}).columns()+` FROM
+  (SELECT thing_id, count(user_id)
+   FROM parties
+   WHERE user_id = $1 OR user_id = $2
+   GROUP BY thing_id
+  )x
+INNER JOIN things ON thing_id = things.id
+WHERE x.count >= 2
+ORDER BY actual_date DESC
+`, user.Id, loggedUserId)
+					} else {
+						err = pg.Select(&things, `
 SELECT `+(Thing{}).columns()+` FROM things
 INNER JOIN parties ON things.id = parties.thing_id
 WHERE parties.user_id = $1
 ORDER BY actual_date DESC
                     `, user.Id)
+
+					}
 					if err != nil {
-						log.Error().Str("user", user.Id).Err(err).
+						log.Error().Err(err).
+							Str("logged", loggedUserId).
+							Str("user", user.Id).
 							Msg("on user things query")
 						err = nil
 					}

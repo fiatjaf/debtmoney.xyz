@@ -1,5 +1,7 @@
 module Page exposing (..)
 
+import Html exposing (Html, text, a)
+import Html.Events exposing (onClick)
 import Route exposing ((:=), static, (</>))
 
 
@@ -12,10 +14,10 @@ type Page
   | NotFound
 
 homePage = HomePage := static ""
-recordPage = ThingPage := static "record" </> Route.string
+thingPage = ThingPage := static "thing" </> Route.string
 userPage = UserPage := static "user" </> Route.string
 
-routes = Route.router [homePage, recordPage, userPage]
+routes = Route.router [homePage, thingPage, userPage]
 
 match : String -> Page
 match
@@ -24,3 +26,9 @@ match
   >> Route.match routes
   >> Debug.log "matched route"
   >> Maybe.withDefault NotFound
+
+type GlobalMsg
+  = Navigate String
+
+link : String -> String -> Html GlobalMsg
+link to name = a [ onClick <| Navigate (prefix ++ to) ] [ text name ]

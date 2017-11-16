@@ -26,6 +26,7 @@ import String exposing (trim)
 import String.Extra exposing (nonEmpty, isBlank)
 
 import Helpers exposing (..)
+import Page exposing (link, GlobalMsg(..))
 import Data.Currencies
 
 type alias Thing =
@@ -178,6 +179,7 @@ type ThingMsg
   | ConfirmThing Bool
   | PublishThing
   | GotConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
+  | ThingGlobalAction GlobalMsg
 
 type EditingThingMsg
   = SetTotal String
@@ -333,13 +335,13 @@ viewThingCard myId userId thing =
           ]
       ]
 
-viewPartyRow : String -> Party -> Html msg
+viewPartyRow : String -> Party -> Html ThingMsg
 viewPartyRow duedefault party =
   tr []
     [ td []
       [ if party.user_id == ""
         then text party.account_name
-        else a [] [ text party.user_id ]
+        else Html.map ThingGlobalAction <| link ("/user/" ++ party.user_id) party.user_id
       ]
     , td []
       [ text <|

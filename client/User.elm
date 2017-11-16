@@ -15,6 +15,7 @@ import GraphQL.Request.Builder.Variable as Var
 
 import Helpers exposing (..)
 import Thing exposing (..)
+import Page exposing (link, GlobalMsg(..))
 
 
 type alias User =
@@ -61,6 +62,7 @@ balanceSpec = object Balance
 
 type UserMsg
   = UserThingAction Thing ThingMsg
+  | UserGlobalAction GlobalMsg
 
 
 -- VIEW
@@ -82,11 +84,11 @@ viewUser me user =
           <| user.things
       ]
     , div []
-      [ h2 [] [ text "address:" ]
+      [ h2 [ class "title is-4" ] [ text "address:" ]
       , p [] [ text user.address]
       ]
     , div []
-      [ h2 [] [ text "balances:" ]
+      [ h2 [ class "title is-4" ] [ text "balances:" ]
       , table [ class "table is-striped is-fullwidth" ]
         [ thead []
           [ tr []

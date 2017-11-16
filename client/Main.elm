@@ -27,7 +27,7 @@ type alias Flags = {}
 
 main =
   Navigation.programWithFlags
-    (.pathname >> Navigate)
+    (.pathname >> (GlobalAction << Navigate))
     { init = init
     , view = view
     , update = update
@@ -63,7 +63,7 @@ init flags location =
         ""
         ""
         ""
-    (nextm, handlelocation) = update (Navigate location.pathname) m
+    (nextm, handlelocation) = update (GlobalAction (Navigate location.pathname)) m
   in
     nextm ! [ loadmyself, handlelocation ]
 
@@ -72,8 +72,8 @@ init flags location =
 
 
 type Msg
-  = EraseNotifications
-  | Navigate String
+  = RedirectToLanding
+  | EraseNotifications
   | LoadMyself
   | GotMyself (Result GraphQL.Client.Http.Error User.User)
   | GotUser (Result GraphQL.Client.Http.Error User.User)
@@ -81,38 +81,19 @@ type Msg
   | EditingThingAction EditingThingMsg
   | ThingAction Thing ThingMsg
   | UserAction User UserMsg
+  | GlobalAction GlobalMsg
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    RedirectToLanding ->
+      ( model
+      , Navigation.load "/"
+      )
     EraseNotifications ->
       ( { model | error = "", loading = "", notification = "" }
       , Cmd.none
       )
-    Navigate pathname ->
-      let
-        route = match pathname
-        m = { model | route = route }
-        (nextm, effect) = case route of
-          HomePage -> update LoadMyself m
-          ThingPage thingId ->
-            ( { m | loading = "Loading thing..." }
-            , request thingId thingQuery
-              |> sendQuery "/_graphql"
-              |> Task.attempt GotThing
-            )
-          UserPage userId ->
-            ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
-            , request userId userQuery
-              |> sendQuery "/_graphql"
-              |> Task.attempt GotUser
-            )
-          NotFound -> ( m, Cmd.none)
-        updateurl = if route == model.route
-          then Cmd.none
-          else Navigation.newUrl pathname
-      in
-        nextm ! [ effect, updateurl ]
     LoadMyself ->
       ( { model | loading = "Loading your profile..." }
       , Cmd.batch
@@ -134,7 +115,10 @@ update msg model =
             }
           , Cmd.none
           )
-        Err err -> ( model, Navigation.load "/")
+        Err err ->
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 5) RedirectToLanding
+          )
     GotUser result ->
       case result of
         Ok user -> { model | user = user, loading = "" } ! []
@@ -219,9 +203,37 @@ update msg model =
               ( { model | error = errorFormat err, loading = "" }
               , delay (Time.second * 5) EraseNotifications
               )
+        ThingGlobalAction msg -> update (GlobalAction msg) model
     UserAction user msg ->
       case msg of
         UserThingAction thing msg -> update (ThingAction thing msg) model
+        UserGlobalAction msg -> update (GlobalAction msg) model
+    GlobalAction msg ->
+      case msg of
+        Navigate pathname ->
+          let
+            route = match pathname
+            m = { model | route = route }
+            (nextm, effect) = case route of
+              HomePage -> update LoadMyself m
+              ThingPage thingId ->
+                ( { m | loading = "Loading thing..." }
+                , request thingId thingQuery
+                  |> sendQuery "/_graphql"
+                  |> Task.attempt GotThing
+                )
+              UserPage userId ->
+                ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
+                , request userId userQuery
+                  |> sendQuery "/_graphql"
+                  |> Task.attempt GotUser
+                )
+              NotFound -> ( m, Cmd.none)
+            updateurl = if route == model.route
+              then Cmd.none
+              else Navigation.newUrl pathname
+          in
+            nextm ! [ effect, updateurl ]
 
 
 -- SUBSCRIPTIONS
@@ -245,7 +257,7 @@ view model =
           [ div [ class "field" ]
             [ if model.me.id == ""
               then a [ href "/" ] [ text "login" ]
-              else text model.me.id
+              else Html.map GlobalAction <| link "/" model.me.id
             ]
           ]
         ]
