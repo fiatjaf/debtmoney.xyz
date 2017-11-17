@@ -119,14 +119,43 @@ $$
   IMMUTABLE
   RETURNS NULL ON NULL INPUT;
 
+CREATE MATERIALIZED VIEW friends AS
+  SELECT
+    parties.user_id AS main,
+    fid AS friend,
+    count(*) AS score
+  FROM parties
+  INNER JOIN (
+    SELECT parties.user_id AS fid, parties.thing_id AS tid
+    FROM parties
+  )x ON x.tid = parties.thing_id
+  WHERE parties.user_id != fid
+  GROUP BY (parties.user_id, fid);
+
+CREATE INDEX friends_main ON friends (main);
+
+CREATE FUNCTION refresh_friends() RETURNS TRIGGER AS $$
+  BEGIN
+    REFRESH MATERIALIZED VIEW friends;
+    RETURN NULL;
+  END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER refresh_friends AFTER INSERT OR UPDATE ON parties
+  FOR EACH STATEMENT
+  EXECUTE PROCEDURE refresh_friends();
+
 -- drop everything
 
 -- DROP TABLE users; -- BEWARE, DON'T DROP THIS
+-- DROP TABLE parties;
+-- DROP TABLE things;
 DROP TRIGGER thing_totals ON parties;
 DROP TRIGGER thing_totals ON things;
 DROP FUNCTION thing_totals();
 DROP FUNCTION publishable(things);
 DROP FUNCTION default_asset(users);
 DROP FUNCTION nullable(text);
--- DROP TABLE parties;
--- DROP TABLE things;
+DROP TRIGGER refresh_friends ON parties;
+DROP FUNCTION refresh_friends();
+DROP MATERIALIZED VIEW friends;

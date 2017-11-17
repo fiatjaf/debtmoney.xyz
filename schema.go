@@ -149,11 +149,19 @@ var assetType = graphql.NewObject(
 			"issuer_id": &graphql.Field{
 				Type: graphql.String,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					loggedUserId, ok := p.Context.Value("userId").(string)
+					if !ok {
+						return nil, nil
+					}
+
 					asset := p.Source.(Asset)
 
-					err := pg.Get(&asset.IssuerId,
-						"SELECT id FROM users WHERE address = $1",
-						asset.IssuerAddress)
+					err := pg.Get(&asset.IssuerId, `
+SELECT id FROM users
+INNER JOIN friends ON id = friends.friend
+WHERE (address = $2 AND friends.main = $1)
+   OR (address = $2 AND id = $1)
+                    `, loggedUserId, asset.IssuerAddress)
 					if err != nil {
 						log.Info().
 							Str("issuer", asset.IssuerAddress).
