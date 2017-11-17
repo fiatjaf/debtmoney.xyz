@@ -208,27 +208,30 @@ update msg model =
       case msg of
         UserThingAction thing msg -> update (ThingAction thing msg) model
         UserGlobalAction msg -> update (GlobalAction msg) model
+        UserEditingThingAction msg -> update (EditingThingAction msg) model
     GlobalAction msg ->
       case msg of
         Navigate pathname ->
           let
             route = match pathname
             m = { model | route = route }
-            (nextm, effect) = case route of
-              HomePage -> update LoadMyself m
-              ThingPage thingId ->
-                ( { m | loading = "Loading thing..." }
-                , request thingId thingQuery
-                  |> sendQuery "/_graphql"
-                  |> Task.attempt GotThing
-                )
-              UserPage userId ->
-                ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
-                , request userId userQuery
-                  |> sendQuery "/_graphql"
-                  |> Task.attempt GotUser
-                )
-              NotFound -> ( m, Cmd.none)
+            (nextm, effect) = if route == model.route
+              then (m, Cmd.none)
+              else case route of
+                HomePage -> update LoadMyself m
+                ThingPage thingId ->
+                  ( { m | loading = "Loading thing..." }
+                  , request thingId thingQuery
+                    |> sendQuery "/_graphql"
+                    |> Task.attempt GotThing
+                  )
+                UserPage userId ->
+                  ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
+                  , request userId userQuery
+                    |> sendQuery "/_graphql"
+                    |> Task.attempt GotUser
+                  )
+                NotFound -> ( m, Cmd.none)
             updateurl = if route == model.route
               then Cmd.none
               else Navigation.newUrl pathname
@@ -262,7 +265,7 @@ view model =
           ]
         ]
       ]
-    , div [ class "section" ]
+    , div []
       [ if model.error == "" then text ""
         else div [ class "notification is-danger" ] [ text <| model.error ]
       , if model.notification == "" then text ""
@@ -278,7 +281,7 @@ view model =
         [ case model.route of
           HomePage ->
             Html.map (UserAction model.me)
-              <| lazy2 viewUser model.me model.me
+              <| lazy2 viewHome model.me model.editingThing
           ThingPage r ->
             Html.map (ThingAction model.thing)
               <| lazy viewThing model.thing
@@ -287,12 +290,6 @@ view model =
               <| lazy2 viewUser model.me model.user
           NotFound ->
             div [] [ text "this page doesn't exist" ]
-        ]
-      ]
-    , section [ class "section" ]
-      [ div [ class "container" ]
-        [ Html.map EditingThingAction
-          ( lazy viewEditingThing model.editingThing )
         ]
       ]
     ]

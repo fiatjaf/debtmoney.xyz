@@ -8,7 +8,7 @@ import Html exposing
   , span, section, nav, img, label
   )
 import Html.Lazy exposing (lazy, lazy2, lazy3)
-import Html.Attributes exposing (class)
+import Html.Attributes exposing (class, href, target, title)
 import GraphQL.Request.Builder exposing (..)
 import GraphQL.Request.Builder.Arg as Arg
 import GraphQL.Request.Builder.Variable as Var
@@ -27,9 +27,15 @@ type alias User =
   }
 
 type alias Balance =
-  { asset : String
+  { asset : Asset
   , amount : String
   , limit : String
+  }
+
+type alias Asset =
+  { code : String
+  , issuer_address : String
+  , issuer_id : String
   }
 
 defaultUser : User
@@ -53,9 +59,14 @@ userSpec = object User
   |> with ( field "things" [] (list thingSpec) )
 
 balanceSpec = object Balance
-  |> with ( field "asset" [] string )
+  |> with ( field "asset" [] assetSpec )
   |> with ( field "amount" [] string )
   |> with ( field "limit" [] string )
+
+assetSpec = object Asset
+  |> with ( field "code" [] string )
+  |> with ( field "issuer_address" [] string )
+  |> with ( field "issuer_id" [] string )
 
 
 -- UPDATE
@@ -63,6 +74,7 @@ balanceSpec = object Balance
 type UserMsg
   = UserThingAction Thing ThingMsg
   | UserGlobalAction GlobalMsg
+  | UserEditingThingAction EditingThingMsg
 
 
 -- VIEW
@@ -74,8 +86,8 @@ viewUser me user =
     [ h1 []
       [ text <| user.id ++ "'s" ++ " profile"
       ]
-    , div []
-      [ h2 [] [ text "transactions:" ]
+    , div [ class "section" ]
+      [ h2 [ class "title is-4" ] [ text "transactions:" ]
       , div [ class "things" ]
           <| List.map
             (\t -> Html.map (UserThingAction t)
@@ -83,11 +95,11 @@ viewUser me user =
             )
           <| user.things
       ]
-    , div []
+    , div [ class "section" ]
       [ h2 [ class "title is-4" ] [ text "address:" ]
       , p [] [ text user.address]
       ]
-    , div []
+    , div [ class "section" ]
       [ h2 [ class "title is-4" ] [ text "balances:" ]
       , table [ class "table is-striped is-fullwidth" ]
         [ thead []
@@ -98,15 +110,63 @@ viewUser me user =
             ]
           ]
         , tbody []
-          <| List.map assetRow user.balances
+          <| List.map (Html.map UserGlobalAction << balanceRow) user.balances
         ]
       ]
     ]
 
-assetRow : Balance -> Html msg
-assetRow balance =
+balanceRow : Balance -> Html GlobalMsg
+balanceRow balance =
   tr []
-    [ td [] [ text balance.asset ]
+    [ td [] [ viewAsset balance.asset ]
     , td [] [ text balance.amount ]
     , td [] [ text balance.limit ]
+    ]
+
+viewAsset : Asset -> Html GlobalMsg
+viewAsset asset =
+  span [ class "asset" ]
+    [ text asset.code
+    , text "#"
+    , if asset.issuer_id /= ""
+      then link ("/user/" ++ asset.issuer_id) (asset.issuer_id)
+      else a
+        [ href <| "https://stellar.debtmoney.xyz/#/addr/" ++ asset.issuer_address
+        , target "_blank"
+        , title asset.issuer_address
+        ] [ text <| wrap asset.issuer_address ]
+    ]
+
+viewHome : User -> EditingThing -> Html UserMsg
+viewHome user editingThing =
+  div []
+    [ Html.map UserEditingThingAction
+      ( lazy viewEditingThing editingThing )
+    , div [ class "section" ]
+      [ h2 [ class "title is-4" ] [ text "transactions:" ]
+      , div [ class "things" ]
+          <| List.map
+            (\t -> Html.map (UserThingAction t)
+              <| lazy3 viewThingCard user.id user.id t
+            )
+          <| user.things
+      ]
+    , div [ class "section" ]
+      [ h2 [ class "title is-4" ] [ text "address:" ]
+      , p [] [ text user.address]
+      ]
+    , div [ class "section" ]
+      [ h2 [ class "title is-4" ] [ text "balances:" ]
+      , table [ class "table is-striped is-fullwidth" ]
+        [ thead []
+          [ tr []
+            [ th [] [ text "asset" ]
+            , th [] [ text "amount" ]
+            , th [] [ text "trust limit" ]
+            ]
+          ]
+        , tbody []
+          <| List.map (Html.map UserGlobalAction << balanceRow) user.balances
+        ]
+      ]
     ]

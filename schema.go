@@ -64,26 +64,15 @@ var userType = graphql.NewObject(
 					balances := make([]Balance, 0, len(user.ha.Balances))
 
 					for _, b := range user.ha.Balances {
-						var assetName string
 						if b.Asset.Type == "native" {
 							continue // should we display this? no, probably not.
-							assetName = "lumens"
-						} else {
-							issuerName := b.Asset.Issuer
-							err := pg.Get(&issuerName,
-								"SELECT id FROM users WHERE address = $1",
-								b.Asset.Issuer)
-							if err != nil {
-								log.Error().
-									Str("issuer", b.Asset.Issuer).
-									Err(err).
-									Msg("on asset issuer name query.")
-							}
-							assetName = b.Asset.Code + "#" + issuerName
 						}
 
 						balances = append(balances, Balance{
-							Asset:  assetName,
+							Asset: Asset{
+								Code:          b.Asset.Code,
+								IssuerAddress: b.Asset.Issuer,
+							},
 							Amount: b.Balance,
 							Limit:  b.Limit,
 						})
@@ -140,6 +129,44 @@ ORDER BY actual_date DESC
 	},
 )
 
+var balanceType = graphql.NewObject(
+	graphql.ObjectConfig{
+		Name: "BalanceType",
+		Fields: graphql.Fields{
+			"asset":  &graphql.Field{Type: assetType},
+			"amount": &graphql.Field{Type: graphql.String},
+			"limit":  &graphql.Field{Type: graphql.String},
+		},
+	},
+)
+
+var assetType = graphql.NewObject(
+	graphql.ObjectConfig{
+		Name: "AssetType",
+		Fields: graphql.Fields{
+			"code":           &graphql.Field{Type: graphql.String},
+			"issuer_address": &graphql.Field{Type: graphql.String},
+			"issuer_id": &graphql.Field{
+				Type: graphql.String,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					asset := p.Source.(Asset)
+
+					err := pg.Get(&asset.IssuerId,
+						"SELECT id FROM users WHERE address = $1",
+						asset.IssuerAddress)
+					if err != nil {
+						log.Info().
+							Str("issuer", asset.IssuerAddress).
+							Err(err).
+							Msg("nothing found on asset issuer name query.")
+					}
+					return asset.IssuerId, nil
+				},
+			},
+		},
+	},
+)
+
 var thingType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "ThingType",
@@ -190,17 +217,6 @@ var inputPartyType = graphql.NewInputObject(
 			"account": &graphql.InputObjectFieldConfig{Type: graphql.String},
 			"paid":    &graphql.InputObjectFieldConfig{Type: graphql.String},
 			"due":     &graphql.InputObjectFieldConfig{Type: graphql.String},
-		},
-	},
-)
-
-var balanceType = graphql.NewObject(
-	graphql.ObjectConfig{
-		Name: "BalanceType",
-		Fields: graphql.Fields{
-			"asset":  &graphql.Field{Type: graphql.String},
-			"amount": &graphql.Field{Type: graphql.String},
-			"limit":  &graphql.Field{Type: graphql.String},
 		},
 	},
 )

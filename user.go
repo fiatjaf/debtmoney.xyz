@@ -29,9 +29,15 @@ coalesce(users.default_asset, 'USD') AS default_asset
 }
 
 type Balance struct {
-	Asset  string `json:"asset"`
+	Asset  Asset  `json:"asset"`
 	Amount string `json:"amount"`
 	Limit  string `json:"limit"`
+}
+
+type Asset struct {
+	Code          string `json:"code"`
+	IssuerAddress string `json:"issuer_address"`
+	IssuerId      string `json:"issuer_id"`
 }
 
 func ensureUser(id string) (user User, err error) {
