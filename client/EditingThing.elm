@@ -10,7 +10,10 @@ import Html exposing
   )
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2, lazy3)
-import Html.Attributes exposing (class, value, colspan, href, target, classList)
+import Html.Attributes exposing
+  ( class, value, colspan, href, target
+  , classList, disabled
+  )
 import Html.Events exposing (onInput, onClick, on)
 import Maybe exposing (withDefault)
 import Json.Decode as J
@@ -24,6 +27,7 @@ import Tuple exposing (..)
 import Prelude exposing (..)
 import String exposing (trim)
 import String.Extra exposing (nonEmpty, isBlank)
+import Select
 
 import Helpers exposing (..)
 import Thing exposing (..)
@@ -47,9 +51,11 @@ type alias InputParty =
   , due : String
   , paid : String
   , v : Int
+  , selectState : Select.State
+  , blocked : Bool
   }
 
-defaultInputParty = InputParty "" "" "" 0
+defaultInputParty = InputParty "" "" "" 0 (Select.newState "") False
 
 setThingMutation : Document Mutation Thing EditingThing
 setThingMutation =
@@ -103,7 +109,12 @@ updateEditingThing msg vars =
       { vars
         | parties = vars.parties
           |> Array.push
-            { defaultInputParty | user = user, due = due, paid = paid }
+            { defaultInputParty
+              | user = user
+              , due = due
+              , paid = paid
+              , selectState = Select.newState (toString <| Array.length vars.parties)
+            }
       }
     EnsureParty user ->
       if (Array.length
@@ -112,7 +123,7 @@ updateEditingThing msg vars =
       else
         { vars
           | parties = vars.parties
-            |> Array.push { defaultInputParty | user = user }
+            |> Array.push { defaultInputParty | user = user, blocked = True }
         }
     UpdateParty index upd ->
       case Array.get index vars.parties of
@@ -120,6 +131,7 @@ updateEditingThing msg vars =
           SetPartyAccount user -> updateEditingThing (AddParty user "" "") vars
           SetPartyDue due -> updateEditingThing (AddParty "" (decimalize "" due) "") vars
           SetPartyPaid paid -> updateEditingThing (AddParty "" "" (decimalize "" paid)) vars
+          _ -> vars
         Just prevparty ->
           let
             party = { prevparty | v = prevparty.v + 1 }
@@ -142,6 +154,8 @@ type UpdatePartyMsg
   = SetPartyAccount String
   | SetPartyDue String
   | SetPartyPaid String
+  | OnSelect (Maybe String)
+  | SelectMsg (Select.Msg String)
 
 updateInputParty : UpdatePartyMsg -> InputParty -> InputParty
 updateInputParty msg party =
@@ -149,6 +163,15 @@ updateInputParty msg party =
     SetPartyAccount user -> { party | user = user }
     SetPartyDue due -> { party | due = decimalize party.due due }
     SetPartyPaid paid -> { party | paid = decimalize party.paid paid }
+    OnSelect selected ->
+      { party | user =
+        case  selected of
+          Just u -> u
+          Nothing -> party.user
+      }
+    SelectMsg m ->
+      let ( s, _ ) = Select.update selectConfig m party.selectState
+      in { party | selectState = s }
 
 
 viewEditingThing : List String -> EditingThing -> Html EditingThingMsg
@@ -299,14 +322,36 @@ viewEditingThing friends editingThing =
         ]
       ]
 
+selectConfig : Select.Config UpdatePartyMsg String
+selectConfig =
+  Select.newConfig OnSelect identity
+    |> Select.withCutoff 5
+    |> Select.withInputStyles [ ( "padding", "0.5rem" ), ( "outline", "none" ) ]
+    |> Select.withItemClass "border-bottom border-silver p1 gray"
+    |> Select.withItemStyles [ ( "font-size", "1rem" ) ]
+    |> Select.withMenuClass "border border-gray"
+    |> Select.withMenuStyles [ ( "background", "white" ) ]
+    |> Select.withNotFoundShown False
+    |> Select.withHighlightedItemClass "bg-silver"
+    |> Select.withHighlightedItemStyles [ ( "color", "black" ) ]
+    |> Select.withPrompt ""
+    |> Select.withPromptClass "grey"
+    |> Select.withOnQuery SetPartyAccount
+
 viewEditingPartyRow : (String, List String) -> Int -> InputParty -> Html UpdatePartyMsg
 viewEditingPartyRow (duedefault, friends) index party =
   tr []
     [ td [ class "user" ]
-      [ input
-        [ value party.user
-        , onInput SetPartyAccount
-        ] []
+      [ if party.blocked
+        then input [ disabled True, value party.user ] []
+        else
+          Html.map SelectMsg
+            ( Select.view
+                selectConfig
+                party.selectState
+                friends
+                ( if isBlank party.user then Nothing else Just party.user )
+            )
       ]
     , td [ class "due" ]
       [ input

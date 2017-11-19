@@ -10,11 +10,13 @@ import Html.Attributes exposing (class, href, value)
 import Html.Events exposing (onClick, onSubmit, onWithOptions)
 import Navigation exposing (Location)
 import Task exposing (Task)
+import Platform.Cmd as Cmd
 import Array exposing (Array)
 import Time exposing (Time)
 import Result
 import GraphQL.Client.Http exposing (sendQuery, sendMutation)
 import GraphQL.Request.Builder exposing (request)
+import Select
 
 import Page exposing (..)
 import User exposing (..)
@@ -137,25 +139,35 @@ update msg model =
           , delay (Time.second * 5) EraseNotifications
           )
     EditingThingAction change ->
-      case change of
-        Submit -> 
-          ( { model | loading = "Submitting transaction..." }
-          , request model.editingThing setThingMutation
-            |> sendMutation "/_graphql"
-            |> Task.attempt (GotResponse <| "Saved transaction.")
-          )
-        Delete ->
-          ( { model | loading = "Deleting transaction " ++ model.editingThing.id ++ "..." }
-          , request model.editingThing.id deleteThingMutation
-            |> sendMutation "/_graphql"
-            |> Task.attempt
-              (GotResponse <| "Deleted transaction " ++ model.editingThing.id ++ ".")
-          )
-      
-        _ ->
-          ( { model | editingThing = updateEditingThing change model.editingThing }
-          , Cmd.none
-          )
+      let
+        ( m, eff ) = case change of
+          Submit -> 
+            ( { model | loading = "Submitting transaction..." }
+            , request model.editingThing setThingMutation
+              |> sendMutation "/_graphql"
+              |> Task.attempt (GotResponse <| "Saved transaction.")
+            )
+          Delete ->
+            ( { model | loading = "Deleting transaction " ++ model.editingThing.id ++ "..." }
+            , request model.editingThing.id deleteThingMutation
+              |> sendMutation "/_graphql"
+              |> Task.attempt
+                (GotResponse <| "Deleted transaction " ++ model.editingThing.id ++ ".")
+            )
+          UpdateParty index (SelectMsg m) ->
+            let
+              party = model.editingThing.parties
+                |> Array.get index
+                |> Maybe.withDefault defaultInputParty
+              ( _, cmd ) = Select.update selectConfig m party.selectState
+              eff = Cmd.map (UpdateParty index >> EditingThingAction) cmd
+            in
+              ( model, eff )
+          _ -> ( model, Cmd.none )
+      in
+        ( { model | editingThing = updateEditingThing change model.editingThing }
+        , eff
+        )
     GotResponse success_message result ->
       case result of
         Ok thing -> update LoadMyself
@@ -186,6 +198,8 @@ update msg model =
                           (if p.due_set then p.due else "")
                           p.paid
                           0
+                          defaultInputParty.selectState
+                          defaultInputParty.blocked
                       )
                     |> Array.fromList
                   )
