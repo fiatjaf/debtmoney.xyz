@@ -125,6 +125,30 @@ ORDER BY actual_date DESC
 					return things, err
 				},
 			},
+			"friends": &graphql.Field{
+				Type: graphql.NewList(graphql.String),
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					friends := []string{}
+
+					user := p.Source.(User)
+					loggedUserId, ok := p.Context.Value("userId").(string)
+					if !ok || loggedUserId != user.Id {
+						return friends, nil
+					}
+
+					err := pg.Select(&friends, `
+SELECT friend FROM friends
+WHERE main = $1
+ORDER BY score DESC
+                    `, user.Id)
+					if err != nil {
+						log.Warn().Err(err).Str("user", user.Id).
+							Msg("failed to load friends")
+					}
+
+					return friends, nil
+				},
+			},
 		},
 	},
 )

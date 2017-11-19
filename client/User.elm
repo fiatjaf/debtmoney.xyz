@@ -15,6 +15,7 @@ import GraphQL.Request.Builder.Variable as Var
 
 import Helpers exposing (..)
 import Thing exposing (..)
+import EditingThing exposing (..)
 import Page exposing (link, GlobalMsg(..))
 
 
@@ -24,6 +25,7 @@ type alias User =
   , default_asset : String
   , balances : List Balance
   , things : List Thing
+  , friends : List String
   }
 
 type alias Balance =
@@ -39,7 +41,7 @@ type alias Asset =
   }
 
 defaultUser : User
-defaultUser = User "" "" "" [] []
+defaultUser = User "" "" "" [] [] []
 
 userQuery : Document Query User String
 userQuery =
@@ -57,6 +59,7 @@ userSpec = object User
   |> with ( field "default_asset" [] string )
   |> with ( field "balances" [] (list balanceSpec) )
   |> with ( field "things" [] (list thingSpec) )
+  |> with ( field "friends" [] (list string) )
 
 balanceSpec = object Balance
   |> with ( field "asset" [] assetSpec )
@@ -141,7 +144,7 @@ viewHome : User -> EditingThing -> Html UserMsg
 viewHome user editingThing =
   div []
     [ Html.map UserEditingThingAction
-      ( lazy viewEditingThing editingThing )
+      ( lazy2 viewEditingThing user.friends editingThing )
     , div [ class "section" ]
       [ h2 [ class "title is-4" ] [ text "transactions:" ]
       , div [ class "things" ]

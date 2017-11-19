@@ -150,7 +150,7 @@ a {
   }
   th { text-align: center; }
   .name input { text-align: center; }
-  .account_name, .paid, .due, .paid-total, .due-total, .summary {
+  .user, .paid, .due, .paid-total, .due-total, .summary {
     &, input { text-align: right; }
   }
   .paid, .due, .paid-total, .due-total {
@@ -184,7 +184,7 @@ a {
     border: none;
 
     &:focus {
-      background-color: lightblue;
+      background-color: #def6ff;
     }
   }
 

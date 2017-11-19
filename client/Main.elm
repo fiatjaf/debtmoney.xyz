@@ -19,6 +19,7 @@ import GraphQL.Request.Builder exposing (request)
 import Page exposing (..)
 import User exposing (..)
 import Thing exposing (..)
+import EditingThing exposing (..)
 import Helpers exposing (..)
 
 
@@ -78,10 +79,12 @@ type Msg
   | GotMyself (Result GraphQL.Client.Http.Error User.User)
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
+  | GotResponse String (Result GraphQL.Client.Http.Error Thing)
   | EditingThingAction EditingThingMsg
   | ThingAction Thing ThingMsg
   | UserAction User UserMsg
   | GlobalAction GlobalMsg
+  | Noop
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -139,36 +142,31 @@ update msg model =
           ( { model | loading = "Submitting transaction..." }
           , request model.editingThing setThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt
-              ( EditingThingAction <<
-                GotResponse ("Saved transaction with id " ++ model.editingThing.id ++ ".")
-              )
+            |> Task.attempt (GotResponse <| "Saved transaction.")
           )
         Delete ->
           ( { model | loading = "Deleting transaction " ++ model.editingThing.id ++ "..." }
           , request model.editingThing.id deleteThingMutation
             |> sendMutation "/_graphql"
             |> Task.attempt
-              ( EditingThingAction <<
-                GotResponse ("Delete transaction " ++ model.editingThing.id ++ ".")
-              )
+              (GotResponse <| "Deleted transaction " ++ model.editingThing.id ++ ".")
           )
-        GotResponse success_message result ->
-          case result of
-            Ok thing -> update LoadMyself
-              { model
-                | loading = ""
-                , notification = success_message
-                , editingThing = defaultEditingThing
-              }
-            Err err ->
-              ( { model | error = errorFormat err, loading = "" }
-              , delay (Time.second * 5) EraseNotifications
-              )
-          
+      
         _ ->
           ( { model | editingThing = updateEditingThing change model.editingThing }
           , Cmd.none
+          )
+    GotResponse success_message result ->
+      case result of
+        Ok thing -> update LoadMyself
+          { model
+            | loading = ""
+            , notification = success_message
+            , editingThing = defaultEditingThing
+          }
+        Err err ->
+          ( { model | error = errorFormat err, loading = "" }
+          , delay (Time.second * 5) EraseNotifications
           )
     ThingAction thing msg ->
       case msg of
@@ -180,7 +178,17 @@ update msg model =
                   thing.name
                   thing.asset
                   ( if thing.total_due_set then thing.total_due else "" )
-                  ( Array.fromList thing.parties )
+                  ( thing.parties
+                    |> List.map
+                      (\p ->
+                        InputParty
+                          (if p.user_id /= "" then p.user_id else p.account_name)
+                          (if p.due_set then p.due else "")
+                          p.paid
+                          0
+                      )
+                    |> Array.fromList
+                  )
             }
           , Cmd.none
           )
@@ -237,6 +245,7 @@ update msg model =
               else Navigation.newUrl pathname
           in
             nextm ! [ effect, updateurl ]
+    Noop -> ( model, Cmd.none )
 
 
 -- SUBSCRIPTIONS

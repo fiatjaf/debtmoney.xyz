@@ -10,7 +10,7 @@ import Html exposing
   )
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2, lazy3)
-import Html.Attributes exposing (class, value, colspan, href, target)
+import Html.Attributes exposing (class, value, colspan, href, target, classList)
 import Html.Events exposing (onInput, onClick, on)
 import Maybe exposing (withDefault)
 import Json.Decode as J
@@ -28,6 +28,10 @@ import String.Extra exposing (nonEmpty, isBlank)
 import Helpers exposing (..)
 import Page exposing (link, GlobalMsg(..))
 import Data.Currencies
+
+
+-- MODEL
+
 
 type alias Thing =
   { id : String
@@ -55,10 +59,9 @@ type alias Party =
   , note : String
   , added_by : String
   , confirmed : Bool
-  , v : Int
   }
 
-defaultParty = Party "" "" "" "" False "" "" "" False 0
+defaultParty = Party "" "" "" "" False "" "" "" False
 
 thingQuery : Document Query Thing String
 thingQuery =
@@ -93,43 +96,12 @@ partySpec = object Party
   |> with ( field "note" [] (map (withDefault "") (nullable string)) )
   |> with ( field "added_by" [] string )
   |> with ( field "confirmed" [] bool )
-  |> withLocalConstant defaultParty.v
 
 deleteThingMutation : Document Mutation Thing String
 deleteThingMutation =
   extract
     ( field "deleteThing"
       [ ( "thingId" , Arg.variable <| Var.required "id" identity Var.string )
-      ]
-      thingSpec
-    )
-    |> mutationDocument
-
-setThingMutation : Document Mutation Thing EditingThing
-setThingMutation =
-  extract
-    ( field "setThing"
-      [ ( "id" , Arg.variable <| Var.required "id" .id Var.string )
-      , ( "date"
-        , Arg.variable
-          <| Var.optional "date" (.date >> trim >> nonEmpty) Var.string "now"
-        )
-      , ( "name"
-        , Arg.variable
-          <| Var.optional "name" (.name >> trim >> nonEmpty) Var.string ""
-        )
-      , ( "asset", Arg.variable <| Var.required "asset" .asset Var.string )
-      , ( "total_due", Arg.variable <| Var.required "total_due" .total Var.string )
-      , ( "parties", Arg.variable <| Var.required "parties" (.parties >> Array.toList)
-          ( Var.list
-            ( Var.object "InputPartyType"
-              [ Var.field "account" (.account_name >> trim) Var.string
-              , Var.field "paid" .paid Var.string
-              , Var.field "due" .due Var.string
-              ]
-            )
-          )
-        )
       ]
       thingSpec
     )
@@ -157,21 +129,6 @@ confirmThingMutation =
     |> mutationDocument
 
 
--- MODEL
-
-
-type alias EditingThing =
-  { id : String
-  , date : String 
-  , name : String
-  , asset : String
-  , total : String
-  , parties : Array Party
-  }
-
-defaultEditingThing = EditingThing "" "now" "a splitted bill" "" "" Array.empty
-
-
 -- UPDATE
 
 type ThingMsg
@@ -180,68 +137,6 @@ type ThingMsg
   | PublishThing
   | GotConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
   | ThingGlobalAction GlobalMsg
-
-type EditingThingMsg
-  = SetTotal String
-  | SetName String
-  | SetAsset String
-  | AddParty String String String
-  | EnsureParty String
-  | UpdateParty Int UpdatePartyMsg
-  | RemoveParty Int
-  | Submit
-  | Delete
-  | GotResponse String (Result GraphQL.Client.Http.Error Thing)
-
-type UpdatePartyMsg
-  = SetPartyAccount String
-  | SetPartyDue String
-  | SetPartyPaid String
-
-updateEditingThing : EditingThingMsg -> EditingThing -> EditingThing
-updateEditingThing change vars =
-  case change of
-    SetTotal value -> { vars | total = decimalize vars.total value }
-    SetName name -> { vars | name = name }
-    SetAsset asset -> { vars | asset = asset }
-    AddParty account_name due paid ->
-      { vars
-        | parties = vars.parties
-          |> Array.push
-            { defaultParty | account_name = account_name, due = due, paid = paid }
-      }
-    EnsureParty account_name ->
-      if (Array.length <| Array.filter (.account_name >> (==) account_name) vars.parties) > 0
-      then vars
-      else
-        { vars
-          | parties = vars.parties
-            |> Array.push { defaultParty | account_name = account_name }
-        }
-    UpdateParty index upd ->
-      case Array.get index vars.parties of
-        Nothing -> case upd of
-          SetPartyAccount account_name -> updateEditingThing (AddParty account_name "" "") vars
-          SetPartyDue due -> updateEditingThing (AddParty "" (decimalize "" due) "") vars
-          SetPartyPaid paid -> updateEditingThing (AddParty "" "" (decimalize "" paid)) vars
-        Just prevparty ->
-          let party = { prevparty | v = prevparty.v + 1 } -- force view update
-          in { vars
-            | parties = vars.parties
-              |> Array.set index
-                ( case upd of
-                  SetPartyAccount account_name -> { party | account_name = account_name }
-                  SetPartyDue due -> { party | due = decimalize party.due due }
-                  SetPartyPaid paid -> { party | paid = decimalize party.paid paid }
-                )
-          }
-    RemoveParty index ->
-      let
-        before = Array.slice 0 index vars.parties
-        after = Array.slice (index + 1) 0 vars.parties
-      in { vars | parties = Array.append before after }
-    _ -> vars -- should never happen because we filter for it first.
-
 
 -- VIEW
 
@@ -351,176 +246,4 @@ viewPartyRow duedefault party =
       ]
     , td [] [ text <| fixed2 <| withDefault zero <| Decimal.fromString party.paid ]
     , td [] [ text <| if party.confirmed then "yes" else "no" ]
-    ]
-
-viewEditingThing : EditingThing -> Html EditingThingMsg
-viewEditingThing editingThing =
-  let
-    sum getter =
-      editingThing.parties
-        |> Array.map (getter >> Decimal.fromString >> withDefault zero)
-        |> Array.foldl add zero
-    
-    setduesum = editingThing.parties
-      |> Array.foldl (.due >> Decimal.fromString >> withDefault zero >> add) zero
-    duetotal = Decimal.fromString editingThing.total |> withDefault zero
-    actualtotal = if eq duetotal zero then setduesum else duetotal
-
-    parties_n = Array.length editingThing.parties
-    setdue_n = editingThing.parties
-      |> Array.filter (.due >> (/=) "")
-      |> Array.foldl ((+) << const 1) 0
-    unsetdue_n = parties_n - setdue_n
-
-    duedefault =
-      if duetotal == zero then "" else
-        case Decimal.fastdiv
-          (Decimal.sub duetotal setduesum)
-          (Decimal.fromInt unsetdue_n)
-        of
-          Nothing -> ""
-          Just v -> fixed2 v
-  in
-    div [ class "editingthing" ]
-      [ h1 [ class "title is-4" ]
-        [ text <| if editingThing.id /= ""
-            then "Editing transaction " ++ editingThing.id
-            else "Declare a new transaction:"
-        ]
-      , div [ class "asset control" ]
-        [ label [] [ text "asset: " ]
-        , div [ class "select" ]
-          [ select
-            [ value editingThing.asset
-            , on "change" (J.map SetAsset Html.Events.targetValue )
-            ]
-            <| List.map
-              ( \(code, name) ->
-                  option [ value code ]
-                    [ text <| if code /= "" then code ++ " (" ++ name ++ ")" else "" ]
-              )
-            <| (::) ( "", "" )
-              Data.Currencies.currencies
-          ]
-        ]
-      , table []
-        [ thead []
-          [ tr []
-            [ th [] [ text "identifier" ]
-            , th [] [ text "due" ]
-            , th [] [ text "paid" ]
-            ]
-          , tr []
-            [ td [ class "name" ]
-              [ input
-                [ value editingThing.name
-                , onInput SetName
-                ] []
-              ]
-            , td [ class "due-total" ]
-              [ input
-                [ value <|
-                  if eq duetotal zero then fixed2 setduesum
-                  else editingThing.total
-                , onInput SetTotal
-                ] []
-              ]
-            , td [ class "paid-total" ] [ text <| fixed2 <| sum .paid ]
-            ]
-          ]
-        , tbody []
-          <| List.indexedMap (\i -> Html.map (UpdateParty i))
-          <| List.indexedMap (lazy3 viewEditingPartyRow duedefault)
-          <| flip List.append [ defaultParty ]
-          <| Array.toList editingThing.parties
-        , tfoot []
-          [ tr []
-            [ td [ class "summary", colspan 3 ] <|
-              if setdue_n == parties_n
-                && editingThing.total /= ""
-                && (not <| eq
-                  (sum .due)
-                  (duetotal)
-                )
-              then
-                [ text "mismatched values. the total due is set to "
-                , strong []
-                  [ text <| fixed2 duetotal
-                  ]
-                , text " while the sum of all dues is "
-                , strong []
-                  [ text <| fixed2 <| sum .due
-                  ]
-                ]
-              else if eq actualtotal zero then
-                [ text <| "write how much each person was due to pay and "
-                       ++ "how much each actually paid."
-                ]
-              else case Decimal.compare
-                  ( sum .paid )
-                  ( actualtotal ) of
-                EQ ->
-                  [ text "everything ok."
-                  ]
-                LT ->
-                  [ strong []
-                    [ text <|
-                      fixed2
-                      <| Decimal.sub
-                        ( actualtotal )
-                        ( sum .paid )
-                    ]
-                  , text " left to pay."
-                  ]
-                GT ->
-                  [ strong []
-                    [ text <|
-                      fixed2
-                      <| Decimal.sub
-                        ( sum .paid )
-                        ( actualtotal )
-                    ]
-                  , text " overpaid."
-                  ]
-            ]
-          ]
-        ]
-      , div [ class "button-footer" ]
-        [ if editingThing.id /= ""
-          then button
-            [ class "button is-warning"
-            , onClick Delete
-            ] [ text "Delete" ]
-          else text ""
-        , button
-          [ class "button is-info"
-          , onClick Submit
-          ] [ text "Save" ]
-        ]
-      ]
-
-viewEditingPartyRow : String -> Int -> Party -> Html UpdatePartyMsg
-viewEditingPartyRow duedefault index party =
-  tr []
-    [ td [ class "account_name" ]
-      [ input
-        [ onInput SetPartyAccount
-        , value party.account_name
-        ] []
-      ]
-    , td [ class "due" ]
-      [ input
-        [ onInput SetPartyDue
-        , value <|
-          if party == defaultParty then ""
-          else if party.due == "" then duedefault
-          else party.due
-        ] []
-      ]
-    , td [ class "paid" ]
-      [ input
-        [ onInput SetPartyPaid
-        , value party.paid
-        ] []
-      ]
     ]
