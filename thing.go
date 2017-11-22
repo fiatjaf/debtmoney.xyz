@@ -236,8 +236,9 @@ func (thing Thing) publish() (published bool, err error) {
 		for _, x := range thing.Parties {
 			if x.DueSet {
 				totalSet = totalSet.Add(x.Due)
+			} else {
+				dueUnsetCount += 1
 			}
-			dueUnsetCount += 1
 		}
 		remainingDue = thing.TotalDue.Sub(totalSet)
 		splittedDue = remainingDue.DivRound(decimal.New(dueUnsetCount, 0), 2)
@@ -269,6 +270,11 @@ func (thing Thing) publish() (published bool, err error) {
 
 	if !totalLent.Equals(totalBorrowed) {
 		err = errors.New("unequal totals")
+		log.Warn().
+			Err(err).
+			Str("lent", totalLent.String()).
+			Str("borrowed", totalBorrowed.String()).
+			Msg("when publishing transaction")
 		return
 	}
 
