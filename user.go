@@ -28,6 +28,12 @@ coalesce(users.default_asset, 'USD') AS default_asset
     `
 }
 
+type Path struct {
+	SrcAmount string  `json:"src_amount"`
+	DstAmount string  `json:"dst_amount"`
+	Path      []Asset `json:"path"`
+}
+
 type Balance struct {
 	Asset  Asset  `json:"asset"`
 	Amount string `json:"amount"`

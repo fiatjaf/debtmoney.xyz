@@ -174,7 +174,6 @@ a {
 
   td { border: 1px solid #dbdbdb; }
 
-  .paid-total,
   .summary,
   select,
   input {
@@ -211,5 +210,12 @@ a {
   input:disabled {
     color: black;
     background-color: #efefef;
+  }
+}
+
+.relationship {
+  ul {
+    list-style: inside;
+    padding: 1em;
   }
 }

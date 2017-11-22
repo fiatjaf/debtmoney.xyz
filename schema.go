@@ -1,6 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+
 	"github.com/graphql-go/graphql"
 	"github.com/lucsky/cuid"
 )
@@ -149,6 +154,86 @@ ORDER BY score DESC
 					return friends, nil
 				},
 			},
+			"paths": &graphql.Field{
+				Type: graphql.NewList(pathType),
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					paths := []Path{}
+
+					user := p.Source.(User)
+					loggedUserId, ok := p.Context.Value("userId").(string)
+					if !ok || loggedUserId == user.Id {
+						return paths, nil
+					}
+
+					me, _ := ensureUser(loggedUserId)
+
+					qs := url.Values{}
+					qs.Set("source_account", me.Address)
+					qs.Set("destination_account", user.Address)
+					qs.Set("destination_asset_type", "credit_alphanum4")
+					qs.Set("destination_asset_code", user.DefaultAsset)
+					qs.Set("destination_asset_issuer", user.Address)
+					qs.Set("destination_amount", "1")
+					resp, err := http.Get(h.URL + "/paths?" + qs.Encode())
+					if err != nil || resp.StatusCode >= 300 {
+						body, _ := ioutil.ReadAll(resp.Body)
+						log.Debug().Err(err).
+							Str("body", string(body)).
+							Msg("error on /paths call")
+						return paths, nil
+					}
+					data := struct {
+						Embedded struct {
+							Records []struct {
+								SrcAmount      string `json:"source_amount"`
+								SrcAssetCode   string `json:"source_asset_code"`
+								SrcAssetIssuer string `json:"source_asset_issuer"`
+								DstAmount      string `json:"destination_amount"`
+								Intermediaries []struct {
+									Code   string `json:"asset_code"`
+									Issuer string `json:"asset_issuer"`
+								} `json:"path"`
+							} `json:"records"`
+						} `json:"_embedded"`
+					}{}
+
+					err = json.NewDecoder(resp.Body).Decode(&data)
+					if err != nil {
+						log.Debug().Err(err).Msg("failed to parse /paths response")
+						return paths, nil
+					}
+
+					for _, p := range data.Embedded.Records {
+						ninter := len(p.Intermediaries)
+						path := Path{
+							SrcAmount: p.SrcAmount,
+							DstAmount: p.DstAmount,
+							Path:      make([]Asset, ninter+2),
+						}
+
+						path.Path[0] = Asset{p.SrcAssetCode, p.SrcAssetIssuer, ""}
+						path.Path[ninter+2-1] = Asset{user.DefaultAsset, user.Address, user.Id}
+						for i := 0; i < ninter; i++ {
+							inter := p.Intermediaries[i]
+							path.Path[i+1] = Asset{inter.Code, inter.Issuer, ""}
+						}
+						paths = append(paths, path)
+					}
+
+					return paths, nil
+				},
+			},
+		},
+	},
+)
+
+var pathType = graphql.NewObject(
+	graphql.ObjectConfig{
+		Name: "PathType",
+		Fields: graphql.Fields{
+			"src_amount": &graphql.Field{Type: graphql.String},
+			"dst_amount": &graphql.Field{Type: graphql.String},
+			"path":       &graphql.Field{Type: graphql.NewList(assetType)},
 		},
 	},
 )
@@ -173,19 +258,12 @@ var assetType = graphql.NewObject(
 			"issuer_id": &graphql.Field{
 				Type: graphql.String,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					loggedUserId, ok := p.Context.Value("userId").(string)
-					if !ok {
-						return nil, nil
-					}
-
 					asset := p.Source.(Asset)
-
-					err := pg.Get(&asset.IssuerId, `
-SELECT id FROM users
-INNER JOIN friends ON id = friends.friend
-WHERE (address = $2 AND friends.main = $1)
-   OR (address = $2 AND id = $1)
-                    `, loggedUserId, asset.IssuerAddress)
+					err := pg.Get(
+						&asset.IssuerId,
+						"SELECT id FROM users WHERE address = $1",
+						asset.IssuerAddress,
+					)
 					if err != nil {
 						log.Info().
 							Str("issuer", asset.IssuerAddress).
@@ -366,7 +444,7 @@ var mutations = graphql.Fields{
 			// anyone can publish what should already have been published
 			// no auth. this was supposed to happen automatically on
 			// the last confirmation.
-			thingId := p.Args["thingg_id"].(string)
+			thingId := p.Args["thing_id"].(string)
 			var thing Thing
 			err = pg.Get(&thing, `
 SELECT `+thing.columns()+` FROM things

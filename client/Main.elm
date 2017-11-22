@@ -234,31 +234,35 @@ update msg model =
     GlobalAction msg ->
       case msg of
         Navigate pathname ->
-          let
-            route = match pathname
-            m = { model | route = route }
-            (nextm, effect) = if route == model.route
-              then (m, Cmd.none)
-              else case route of
-                HomePage -> update LoadMyself m
-                ThingPage thingId ->
-                  ( { m | loading = "Loading thing..." }
-                  , request thingId thingQuery
-                    |> sendQuery "/_graphql"
-                    |> Task.attempt GotThing
-                  )
-                UserPage userId ->
-                  ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
-                  , request userId userQuery
-                    |> sendQuery "/_graphql"
-                    |> Task.attempt GotUser
-                  )
-                NotFound -> ( m, Cmd.none)
-            updateurl = if route == model.route
-              then Cmd.none
-              else Navigation.newUrl pathname
+          let route = match pathname
           in
-            nextm ! [ effect, updateurl ]
+            if route == UserPage model.me.id
+            then update (Navigate (prefix ++ "/") |> GlobalAction) model
+            else let
+              route = match pathname
+              m = { model | route = route }
+              (nextm, effect) = if route == model.route
+                then (m, Cmd.none)
+                else case route of
+                  HomePage -> update LoadMyself m
+                  ThingPage thingId ->
+                    ( { m | loading = "Loading thing..." }
+                    , request thingId thingQuery
+                      |> sendQuery "/_graphql"
+                      |> Task.attempt GotThing
+                    )
+                  UserPage userId ->
+                    ( { m | loading = "Loading " ++ userId ++ "'s profile..." }
+                    , request userId userQuery
+                      |> sendQuery "/_graphql"
+                      |> Task.attempt GotUser
+                    )
+                  NotFound -> ( m, Cmd.none)
+              updateurl = if route == model.route
+                then Cmd.none
+                else Navigation.newUrl pathname
+            in
+              nextm ! [ effect, updateurl ]
     Noop -> ( model, Cmd.none )
 
 

@@ -246,7 +246,9 @@ viewEditingThing friends editingThing =
                 , onInput SetTotal
                 ] []
               ]
-            , td [ class "paid-total" ] [ text <| fixed2 <| sum .paid ]
+            , td [ class "paid-total" ]
+                [ input [ disabled True, value <| fixed2 <| sum .paid ] []
+                ]
             ]
           ]
         , tbody [] <|

@@ -24,6 +24,9 @@ decimalize default n =
 fixed2 : Decimal -> String
 fixed2 = Decimal.toFloat >> FormatNumber.format usLocale
 
+pretty2 : String -> String
+pretty2 = Decimal.fromString >> Maybe.map fixed2 >> Maybe.withDefault "0.00"
+
 errorFormat : GraphQL.Client.Http.Error -> String
 errorFormat err =
   case err of
