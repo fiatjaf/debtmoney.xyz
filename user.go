@@ -1,8 +1,8 @@
 package main
 
 import (
+	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/shopspring/decimal"
 	b "github.com/stellar/go/build"
@@ -29,9 +29,9 @@ coalesce(users.default_asset, 'USD') AS default_asset
 }
 
 type Path struct {
-	SrcAmount string  `json:"src_amount"`
-	DstAmount string  `json:"dst_amount"`
-	Path      []Asset `json:"path"`
+	Src  Asset   `json:"src_asset"`
+	Dst  Asset   `json:"dst_asset"`
+	Path []Asset `json:"path"`
 }
 
 type Balance struct {
@@ -47,7 +47,10 @@ type Asset struct {
 }
 
 func ensureUser(id string) (user User, err error) {
-	id = strings.ToLower(id)
+	if id == "" {
+		err = errors.New("blank user id")
+		return
+	}
 
 	log.Info().Str("id", id).Msg("ensuring account")
 	pair, err := keypair.Random()
@@ -59,7 +62,7 @@ func ensureUser(id string) (user User, err error) {
 	err = pg.Get(&user, `
 WITH ins AS (
   INSERT INTO users (id, address, seed)
-  VALUES ($1, $2, $3)
+  VALUES (lower($1), $2, $3)
   ON CONFLICT DO NOTHING
 )
 
@@ -70,6 +73,14 @@ SELECT `+user.columns()+` FROM users WHERE id = $1
 		return
 	}
 
+	return
+}
+
+func getExistingUser(id string) (user User, err error) {
+	err = pg.Get(&user, "SELECT "+user.columns()+" FROM users WHERE id = $1", id)
+	if err != nil && err.Error() != "sql: no rows in result set" {
+		log.Warn().Err(err).Str("id", id).Msg("failed to load user on db")
+	}
 	return
 }
 

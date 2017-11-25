@@ -57,7 +57,7 @@ type alias InputParty =
 
 defaultInputParty = InputParty "" "" "" 0 (Select.newState "") False
 
-setThingMutation : Document Mutation Thing EditingThing
+setThingMutation : Document Mutation ServerResult EditingThing
 setThingMutation =
   extract
     ( field "setThing"
@@ -83,7 +83,7 @@ setThingMutation =
           )
         )
       ]
-      thingSpec
+      serverResultSpec
     )
     |> mutationDocument
 

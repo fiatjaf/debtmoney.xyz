@@ -97,34 +97,34 @@ partySpec = object Party
   |> with ( field "added_by" [] string )
   |> with ( field "confirmed" [] bool )
 
-deleteThingMutation : Document Mutation Thing String
+deleteThingMutation : Document Mutation ServerResult String
 deleteThingMutation =
   extract
     ( field "deleteThing"
       [ ( "thingId" , Arg.variable <| Var.required "id" identity Var.string )
       ]
-      thingSpec
+      serverResultSpec
     )
     |> mutationDocument
 
-publishThingMutation : Document Mutation Thing String
+publishThingMutation : Document Mutation ServerResult String
 publishThingMutation =
   extract
     ( field "publishThing"
       [ ( "thing_id", Arg.variable <| Var.required "thing_id" identity Var.string )
       ]
-      thingSpec
+      serverResultSpec
     )
     |> mutationDocument
 
-confirmThingMutation : Document Mutation Thing (String, Bool)
+confirmThingMutation : Document Mutation ServerResult (String, Bool)
 confirmThingMutation =
   extract
     ( field "confirmThing"
       [ ( "thing_id", Arg.variable <| Var.required "thing_id" first Var.string )
       , ( "confirm", Arg.variable <| Var.required "confirm" second Var.bool )
       ]
-      thingSpec
+      serverResultSpec
     )
     |> mutationDocument
 
@@ -135,7 +135,6 @@ type ThingMsg
   = EditThing
   | ConfirmThing Bool
   | PublishThing
-  | GotConfirmationResponse (Result GraphQL.Client.Http.Error Thing)
   | ThingGlobalAction GlobalMsg
 
 -- VIEW

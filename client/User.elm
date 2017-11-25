@@ -5,15 +5,21 @@ import Html exposing
   , h1, h2, div, textarea, button, p, a
   , table, tbody, thead, tr, th, td
   , input, select, option, header, nav
-  , ul, li, br
+  , ul, li, br, form
   , span, section, nav, img, label, small
   )
-import Html.Lazy exposing (lazy, lazy2, lazy3)
-import Html.Attributes exposing (class, href, target, title)
+import Html.Lazy exposing (lazy2, lazy3)
+import Html.Events exposing (onWithOptions)
+import Html.Attributes exposing
+  ( class, href, target, title, name, colspan
+  , max, type_, value, step
+  )
 import GraphQL.Request.Builder exposing (..)
 import GraphQL.Request.Builder.Arg as Arg
 import GraphQL.Request.Builder.Variable as Var
+import Json.Decode as J
 import Decimal exposing (Decimal, zero, eq)
+import Tuple exposing (..)
 import Maybe exposing (withDefault)
 
 import Helpers exposing (..)
@@ -33,8 +39,8 @@ type alias User =
   }
 
 type alias Path =
-  { src_amount : String
-  , dst_amount : String
+  { src : Asset
+  , dst : Asset
   , path : List Asset
   }
 
@@ -73,8 +79,8 @@ userSpec = object User
   |> with ( field "paths" [] (list pathSpec) )
 
 pathSpec = object Path
-  |> with ( field "src_amount" [] string )
-  |> with ( field "dst_amount" [] string )
+  |> with ( field "src" [] assetSpec )
+  |> with ( field "dst" [] assetSpec )
   |> with ( field "path" [] (list assetSpec) )
 
 balanceSpec = object Balance
@@ -87,11 +93,35 @@ assetSpec = object Asset
   |> with ( field "issuer_address" [] string )
   |> with ( field "issuer_id" [] string )
 
+type alias SendPaymentVars =
+  { dst_user : String
+  , dst_address : String
+  , dst_code : String
+  , src_address : String
+  , src_code : String
+  , amount : String
+  }
+
+sendPaymentMutation : Document Mutation ServerResult SendPaymentVars
+sendPaymentMutation =
+  extract
+    ( field "sendPayment"
+      [ ( "dst_user" , Arg.variable <| Var.required "dst_user" .dst_user Var.string )
+      , ( "dst_code" , Arg.variable <| Var.required "dst_code" .dst_code Var.string )
+      , ( "dst_address" , Arg.variable <| Var.required "dst_address" .dst_address Var.string )
+      , ( "src_code" , Arg.variable <| Var.required "src_code" .src_code Var.string )
+      , ( "src_address" , Arg.variable <| Var.required "src_address" .src_address Var.string )
+      , ( "amount" , Arg.variable <| Var.required "amount" .amount Var.string )
+      ]
+      serverResultSpec
+    )
+    |> mutationDocument
 
 -- UPDATE
 
 type UserMsg
-  = UserThingAction Thing ThingMsg
+  = SendPayment SendPaymentVars
+  | UserThingAction Thing ThingMsg
   | UserGlobalAction GlobalMsg
   | UserEditingThingAction EditingThingMsg
 
@@ -118,11 +148,37 @@ viewUser me user =
     credit = sumrel user me
     debit = sumrel me user 
 
-    path : Html UserMsg
-    path = user.paths
-      |> List.map (.path >> List.map viewAsset >> List.intersperse (text " → ") >> li [])
-      |> ul []
-      |> Html.map UserGlobalAction
+    intoList
+      : Path
+      -> List ((Asset, Asset), List (List Asset))
+      -> List ((Asset, Asset), List (List Asset))
+    intoList path acc =
+      let
+        compare ((src, dst), _) = src == path.src && dst == path.dst
+      in
+        if acc |> List.filter compare |> List.isEmpty
+        then ((path.src, path.dst), [ path.path ]) :: acc
+        else
+          acc
+            |> List.map
+              ( \(key, paths) ->
+                if compare (key, paths)
+                then (key, path.path :: paths)
+                else (key, paths)
+              )
+
+    pathsByAssets : List ((Asset, Asset), List (List Asset))
+    pathsByAssets = user.paths
+      |> List.filter (.path >> List.filter (.issuer_id >> (==) me.id) >> List.isEmpty)
+      |> List.foldl intoList []
+
+    totalBalance : Asset -> String
+    totalBalance asset = me.balances
+      |> List.filter
+        (\b -> b.asset.code == asset.code && b.asset.issuer_address == asset.issuer_address)
+      |> List.head
+      |> Maybe.map .amount
+      |> Maybe.withDefault "0.00"
   in
     div [ class "user" ]
       [ h1 [ class "title is-1" ]
@@ -136,15 +192,26 @@ viewUser me user =
         , if List.length user.paths == 0
           then text ""
           else div []
-            [ text <| "You can make a payment to " ++ user.id ++ " using your current assets:"
-            , path
+            [ text <|
+              "You can make a payment to " ++ user.id ++ " using your current IOU balances:"
+            , table [ class "payment" ]
+              [ thead []
+                [ th [] [ text "you send" ]
+                , th [ colspan 3 ] [ text "the assets go through a path" ]
+                , th [] [ text <| user.id ++ " receives" ]
+                , th [] []
+                ]
+              , tbody []
+                  <| List.map (\((s, d), p) -> pathListRow (totalBalance s) ((s, d), p))
+                  <| pathsByAssets
+              ]
             ]
         ]
-      , div [ class "section things" ]
+      , div [ class "section" ]
         [ h2 [ class "title is-4" ]
           [ text <| "transactions involving you and " ++ user.id ++ ":"
           ]
-        , div []
+        , div [ class "things" ]
             <| List.map
               (\t -> Html.map (UserThingAction t)
                 <| lazy3 viewThingCard me.id user.id t
@@ -193,6 +260,50 @@ viewAsset asset =
           , title asset.issuer_address
           ] [ text <| wrap asset.issuer_address ]
       , text " ]"
+      ]
+    ]
+
+pathListRow : String -> ((Asset, Asset), List (List Asset)) -> Html UserMsg
+pathListRow total ((src, dst), paths) =
+  tr []
+    [ Html.map UserGlobalAction <| td [ class "path-src" ] [ viewAsset src ]
+    , td [ class "arrow" ] [ text " → " ]
+    , Html.map UserGlobalAction <| td []
+      [ div [ class "path-list" ] <|
+        List.map
+          ( ( (List.map viewAsset)
+            >> List.intersperse (text " → ")
+            >> List.map (List.singleton >> li [])
+            )
+          >> (\items -> if List.isEmpty items then text "(direct)" else ul [] items)
+          )
+          paths
+      ]
+    , td [ class "arrow" ] [ text " → " ]
+    , Html.map UserGlobalAction <| td [ class "path-dst" ] [ viewAsset dst ]
+    , td []
+      [ form 
+        [ onWithOptions
+          "submit"
+          {stopPropagation=False, preventDefault=True}
+          ( J.map SendPayment ( J.map6 SendPaymentVars
+            ( J.succeed "" )
+            ( J.succeed dst.issuer_address )
+            ( J.succeed dst.code )
+            ( J.succeed src.issuer_address )
+            ( J.succeed src.code )
+            ( J.at [ "target", "payment", "value" ] J.string )
+          ))
+        ]
+        [ input
+          [ class "input is-small"
+          , name "payment"
+          , value total
+          , Html.Attributes.max total
+          , step "0.01"
+          ] []
+        , button [ class "button is-small" ] [ text "Pay" ]
+        ]
       ]
     ]
 

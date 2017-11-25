@@ -81,7 +81,7 @@ type Msg
   | GotMyself (Result GraphQL.Client.Http.Error User.User)
   | GotUser (Result GraphQL.Client.Http.Error User.User)
   | GotThing (Result GraphQL.Client.Http.Error Thing)
-  | GotResponse String (Result GraphQL.Client.Http.Error Thing)
+  | GotResponse (String -> String) (Result GraphQL.Client.Http.Error ServerResult)
   | EditingThingAction EditingThingMsg
   | ThingAction Thing ThingMsg
   | UserAction User UserMsg
@@ -145,14 +145,14 @@ update msg model =
             ( { model | loading = "Submitting transaction..." }
             , request model.editingThing setThingMutation
               |> sendMutation "/_graphql"
-              |> Task.attempt (GotResponse <| "Saved transaction.")
+              |> Task.attempt (GotResponse <| always "Saved transaction.")
             )
           Delete ->
             ( { model | loading = "Deleting transaction " ++ model.editingThing.id ++ "..." }
             , request model.editingThing.id deleteThingMutation
               |> sendMutation "/_graphql"
               |> Task.attempt
-                (GotResponse <| "Deleted transaction " ++ model.editingThing.id ++ ".")
+                (GotResponse (\v -> "Deleted transaction " ++ v ++ "."))
             )
           UpdateParty index (SelectMsg m) ->
             let
@@ -168,12 +168,12 @@ update msg model =
         ( { model | editingThing = updateEditingThing change model.editingThing }
         , eff
         )
-    GotResponse success_message result ->
+    GotResponse make_success_message result ->
       case result of
-        Ok thing -> update LoadMyself
+        Ok {value} -> update LoadMyself
           { model
             | loading = ""
-            , notification = success_message
+            , notification = make_success_message value
             , editingThing = defaultEditingThing
           }
         Err err ->
@@ -210,31 +210,43 @@ update msg model =
           ( { model | loading = "Confirming transaction..." }
           , request (thing.id, confirm) confirmThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt (GotConfirmationResponse >> ThingAction thing)
+            |> Task.attempt
+              ( GotResponse
+                (\v -> "Confirmed" ++
+                  ( if v /= ""
+                    then " and published in the Stellar network with the hash " ++ v
+                    else ""
+                  )
+                  ++ "."
+                )
+              )
           )
         PublishThing ->
           ( { model | loading = "Publishing transaction..." }
           , request thing.id publishThingMutation
             |> sendMutation "/_graphql"
-            |> Task.attempt (GotConfirmationResponse >> ThingAction thing)
-          )
-        GotConfirmationResponse result ->
-          case result of
-            Ok thing -> update LoadMyself { model | loading = "" }
-            Err err ->
-              ( { model | error = errorFormat err, loading = "" }
-              , delay (Time.second * 5) EraseNotifications
+            |> Task.attempt
+              ( GotResponse
+                (\v -> "Published in the Stellar network with the hash " ++ v ++ ".")
               )
+          )
         ThingGlobalAction msg -> update (GlobalAction msg) model
     UserAction user msg ->
       case msg of
+        SendPayment vars ->
+          ( { model | loading = "Sending payment..." }
+          , request { vars | dst_user = user.id } sendPaymentMutation
+            |> sendMutation "/_graphql"
+            |> Task.attempt (GotResponse (\v -> "Paid in transaction " ++ v))
+          )
         UserThingAction thing msg -> update (ThingAction thing msg) model
         UserGlobalAction msg -> update (GlobalAction msg) model
         UserEditingThingAction msg -> update (EditingThingAction msg) model
     GlobalAction msg ->
       case msg of
         Navigate pathname ->
-          let route = match pathname
+          let
+            route = match pathname
           in
             if route == UserPage model.me.id
             then update (Navigate (prefix ++ "/") |> GlobalAction) model

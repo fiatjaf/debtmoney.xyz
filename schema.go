@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
-	"net/http"
-	"net/url"
+	"errors"
+	"strings"
 
 	"github.com/graphql-go/graphql"
 	"github.com/lucsky/cuid"
+	b "github.com/stellar/go/build"
+	"github.com/stellar/go/clients/horizon"
 )
 
 var queries = graphql.Fields{
@@ -26,6 +26,11 @@ var queries = graphql.Fields{
 			if err != nil {
 				return nil, err
 			}
+
+			// this will be used by subqueries on UserType
+			ha, _ := h.LoadAccount(u.Address)
+			u.ha = ha
+
 			return u, nil
 		},
 	},
@@ -62,9 +67,6 @@ var userType = graphql.NewObject(
 				Type: graphql.NewList(balanceType),
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					user := p.Source.(User)
-
-					ha, _ := h.LoadAccount(user.Address)
-					user.ha = ha
 
 					balances := make([]Balance, 0, len(user.ha.Balances))
 
@@ -164,60 +166,41 @@ ORDER BY score DESC
 					if !ok || loggedUserId == user.Id {
 						return paths, nil
 					}
+					me, _ := getExistingUser(loggedUserId)
 
-					me, _ := ensureUser(loggedUserId)
-
-					qs := url.Values{}
-					qs.Set("source_account", me.Address)
-					qs.Set("destination_account", user.Address)
-					qs.Set("destination_asset_type", "credit_alphanum4")
-					qs.Set("destination_asset_code", user.DefaultAsset)
-					qs.Set("destination_asset_issuer", user.Address)
-					qs.Set("destination_amount", "1")
-					resp, err := http.Get(h.URL + "/paths?" + qs.Encode())
-					if err != nil || resp.StatusCode >= 300 {
-						body, _ := ioutil.ReadAll(resp.Body)
-						log.Debug().Err(err).
-							Str("body", string(body)).
-							Msg("error on /paths call")
-						return paths, nil
+					assetCodes := map[string]bool{
+						user.DefaultAsset: true,
 					}
-					data := struct {
-						Embedded struct {
-							Records []struct {
-								SrcAmount      string `json:"source_amount"`
-								SrcAssetCode   string `json:"source_asset_code"`
-								SrcAssetIssuer string `json:"source_asset_issuer"`
-								DstAmount      string `json:"destination_amount"`
-								Intermediaries []struct {
-									Code   string `json:"asset_code"`
-									Issuer string `json:"asset_issuer"`
-								} `json:"path"`
-							} `json:"records"`
-						} `json:"_embedded"`
-					}{}
-
-					err = json.NewDecoder(resp.Body).Decode(&data)
-					if err != nil {
-						log.Debug().Err(err).Msg("failed to parse /paths response")
-						return paths, nil
+					for _, balance := range user.ha.Balances {
+						if balance.Asset.Type != "native" {
+							assetCodes[balance.Asset.Code] = true
+						}
 					}
 
-					for _, p := range data.Embedded.Records {
-						ninter := len(p.Intermediaries)
-						path := Path{
-							SrcAmount: p.SrcAmount,
-							DstAmount: p.DstAmount,
-							Path:      make([]Asset, ninter+2),
+					for code := range assetCodes {
+						data, err := findPaths(
+							me.Address,
+							user.Address,
+							Asset{code, user.Address, ""},
+						)
+
+						if err != nil {
+							log.Debug().Err(err).Msg("failed to call /paths")
+							continue
 						}
 
-						path.Path[0] = Asset{p.SrcAssetCode, p.SrcAssetIssuer, ""}
-						path.Path[ninter+2-1] = Asset{user.DefaultAsset, user.Address, user.Id}
-						for i := 0; i < ninter; i++ {
-							inter := p.Intermediaries[i]
-							path.Path[i+1] = Asset{inter.Code, inter.Issuer, ""}
+						for _, p := range data.Embedded.Records {
+							path := Path{
+								Path: make([]Asset, len(p.Intermediaries)),
+								Src:  Asset{p.SrcAssetCode, p.SrcAssetIssuer, ""},
+								Dst:  Asset{p.DstAssetCode, p.DstAssetIssuer, ""},
+							}
+
+							for i, inter := range p.Intermediaries {
+								path.Path[i] = Asset{inter.Code, inter.Issuer, ""}
+							}
+							paths = append(paths, path)
 						}
-						paths = append(paths, path)
 					}
 
 					return paths, nil
@@ -231,9 +214,19 @@ var pathType = graphql.NewObject(
 	graphql.ObjectConfig{
 		Name: "PathType",
 		Fields: graphql.Fields{
-			"src_amount": &graphql.Field{Type: graphql.String},
-			"dst_amount": &graphql.Field{Type: graphql.String},
-			"path":       &graphql.Field{Type: graphql.NewList(assetType)},
+			"src": &graphql.Field{
+				Type: assetType,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return p.Source.(Path).Src, nil
+				},
+			},
+			"dst": &graphql.Field{
+				Type: assetType,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return p.Source.(Path).Dst, nil
+				},
+			},
+			"path": &graphql.Field{Type: graphql.NewList(assetType)},
 		},
 	},
 )
@@ -259,6 +252,10 @@ var assetType = graphql.NewObject(
 				Type: graphql.String,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					asset := p.Source.(Asset)
+
+					/* replace the code here with some faster call to an
+					   in-memory hashmap of addresses->ids */
+
 					err := pg.Get(
 						&asset.IssuerId,
 						"SELECT id FROM users WHERE address = $1",
@@ -333,7 +330,7 @@ var inputPartyType = graphql.NewInputObject(
 
 var mutations = graphql.Fields{
 	"setThing": &graphql.Field{
-		Type: thingType,
+		Type: resultType,
 		Args: graphql.FieldConfigArgument{
 			"id":   &graphql.ArgumentConfig{Type: graphql.String},
 			"date": &graphql.ArgumentConfig{Type: graphql.String},
@@ -402,11 +399,11 @@ var mutations = graphql.Fields{
 				return nil, err
 			}
 
-			return thing, nil
+			return thing.Id, nil
 		},
 	},
 	"deleteThing": &graphql.Field{
-		Type: thingType,
+		Type: resultType,
 		Args: graphql.FieldConfigArgument{
 			"thingId": &graphql.ArgumentConfig{Type: graphql.String},
 		},
@@ -432,11 +429,11 @@ var mutations = graphql.Fields{
 				log.Warn().Err(err).Msg("failed to commit thing transaction")
 			}
 
-			return Thing{Id: thingId}, nil
+			return thingId, nil
 		},
 	},
 	"publishThing": &graphql.Field{
-		Type: thingType,
+		Type: resultType,
 		Args: graphql.FieldConfigArgument{
 			"thing_id": &graphql.ArgumentConfig{Type: graphql.String},
 		},
@@ -458,22 +455,23 @@ WHERE id = $1 LIMIT 1
 				_, err = thing.publish()
 			}
 
-			return thing, err
+			return thing.Transaction, err
 		},
 	},
 	"confirmThing": &graphql.Field{
-		Type: thingType,
+		Type: resultType,
 		Args: graphql.FieldConfigArgument{
 			"thing_id": &graphql.ArgumentConfig{Type: graphql.String},
 			"confirm":  &graphql.ArgumentConfig{Type: graphql.Boolean},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			userId, ok := p.Context.Value("userId").(string)
-			if ok {
-				_, err := ensureUser(userId)
-				if err != nil {
-					return nil, err
-				}
+			if !ok {
+				return nil, errors.New("no-logged-user")
+			}
+			_, err := ensureUser(userId)
+			if err != nil {
+				return nil, err
 			}
 
 			thingId := p.Args["thing_id"].(string)
@@ -490,7 +488,98 @@ WHERE id = $1 LIMIT 1
 				Bool("published", published).
 				Msg("thing confirmation")
 
-			return thing, err
+			return thing.Transaction, err
+		},
+	},
+	"sendPayment": &graphql.Field{
+		Type: resultType,
+		Args: graphql.FieldConfigArgument{
+			"dst_user":    &graphql.ArgumentConfig{Type: graphql.String},
+			"dst_code":    &graphql.ArgumentConfig{Type: graphql.String},
+			"dst_address": &graphql.ArgumentConfig{Type: graphql.String},
+			"src_code":    &graphql.ArgumentConfig{Type: graphql.String},
+			"src_address": &graphql.ArgumentConfig{Type: graphql.String},
+			"amount":      &graphql.ArgumentConfig{Type: graphql.String},
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			userId, ok := p.Context.Value("userId").(string)
+			if !ok {
+				return nil, errors.New("no-logged-user")
+			}
+
+			payer, err := getExistingUser(userId)
+			if err != nil {
+				return nil, err
+			}
+			receiver, err := getExistingUser(p.Args["dst_user"].(string))
+			if err != nil {
+				return nil, err
+			}
+
+			operations := []b.TransactionMutator{}
+			seeds := []string{s.SourceSeed}
+
+			// the receiving user should be an existing stellar account.
+			_, err = h.LoadAccount(receiver.Address)
+			if err != nil {
+				if herr, ok := err.(*horizon.Error); ok && herr.Response.StatusCode == 404 {
+					// if it is not, we must create it.
+					operations = append(
+						operations,
+						receiver.fundInitial(20),
+						b.SetOptions(
+							b.SourceAccount{receiver.Address},
+							b.HomeDomain("debtmoney.xyz"),
+						),
+					)
+					seeds = append(seeds, receiver.Seed)
+				} else {
+					return nil, err
+				}
+			}
+
+			// now we proceed to the payment
+			payment := b.Payment(
+				b.SourceAccount{payer.Address},
+				b.CreditAmount{
+					Code:   p.Args["dst_code"].(string),
+					Issuer: p.Args["dst_address"].(string),
+					Amount: p.Args["amount"].(string),
+				},
+				b.Destination{receiver.Address},
+				b.PayWith(
+					b.Asset{
+						Code:   p.Args["src_code"].(string),
+						Issuer: p.Args["src_address"].(string),
+						Native: false,
+					},
+					p.Args["amount"].(string),
+				),
+			)
+			operations = append(operations, payment)
+			seeds = append(seeds, payer.Seed)
+
+			log.Info().Msg("publishing a path payment")
+			tx := createStellarTransaction()
+
+			tx.Mutate(b.MemoText{"user-initiated"})
+			tx.Mutate(operations...)
+
+			hash, err := commitStellarTransaction(tx, seeds...)
+			if err != nil {
+				if herr, ok := err.(*horizon.Error); ok {
+					h, metaerr := herr.ResultCodes()
+					if metaerr != nil {
+						return nil, err
+					}
+					return nil, errors.New(
+						h.TransactionCode + ": [" + strings.Join(h.OperationCodes, ",") + "]",
+					)
+				}
+				return nil, err
+			}
+
+			return Result{hash}, nil
 		},
 	},
 }
@@ -505,7 +594,7 @@ var resultType = graphql.NewObject(
 )
 
 type Result struct {
-	Value string `json:"string"`
+	Value string `json:"value"`
 }
 
 var rootQuery = graphql.ObjectConfig{Name: "RootQuery", Fields: queries}
